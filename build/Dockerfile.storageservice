@@ -1,0 +1,17 @@
+FROM golang:alpine AS builder
+ARG SERVICE_NAME=storageservice
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /bin/${SERVICE_NAME} ./cmd/${SERVICE_NAME}/main.go
+
+FROM alpine:latest
+ARG SERVICE_NAME
+
+WORKDIR /
+COPY --from=builder /bin/${SERVICE_NAME} .
+
+CMD ["./storageservice"]

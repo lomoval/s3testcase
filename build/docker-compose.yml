@@ -1,0 +1,156 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/18/main
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d postgres" ]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
+
+  fileservice:
+    image: fileservice:0.0.1
+    container_name: fileservice
+    build:
+      context: ./../
+      dockerfile: ./build/Dockerfile.fileservice
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8100
+      STORAGE_LOCATOR_LISTEN_ADDR: 0.0.0.0:8300
+      DOWNLOAD_DIR: /tmp/fs/d
+      UPLOAD_DIR: /tmp/fs/u
+      MIGRATIONS_DIR: /db/migrations
+
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: 12345
+      DB_NAME: postgres
+      DB_SSLMODE: disable
+    ports:
+      - "8100:8100"
+      - "8300:8300"
+
+  storageservice1:
+    image: storageservice:0.0.1
+    container_name: storageservice1
+    build:
+      context: ./../
+      dockerfile: ./build/Dockerfile.storageservice
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8201
+      ADVERTISED_ADDR: storageservice1:8201
+      LOCATOR_URL: http://fileservice:8300
+      SERVICE_UUID: 00000000-0000-0000-0000-000000000001
+      STORAGE_DIR: /tmp/ss
+    ports:
+      - "8201:8201"
+    volumes:
+      - ss1_data:/tmp/ss
+
+  storageservice2:
+    image: storageservice:0.0.1
+    container_name: storageservice2
+    build:
+      context: ./../
+      dockerfile: ./build/Dockerfile.storageservice
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8202
+      ADVERTISED_ADDR: storageservice2:8202
+      LOCATOR_URL: http://fileservice:8300
+      SERVICE_UUID: 00000000-0000-0000-0000-000000000002
+      STORAGE_DIR: /tmp/ss
+    ports:
+      - "8202:8202"
+    volumes:
+      - ss2_data:/tmp/ss
+
+  storageservice3:
+    image: storageservice:0.0.1
+    container_name: storageservice3
+    build:
+      context: ./../
+      dockerfile: ./build/Dockerfile.storageservice
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8203
+      ADVERTISED_ADDR: storageservice3:8203
+      LOCATOR_URL: http://fileservice:8300
+      SERVICE_UUID: 00000000-0000-0000-0000-000000000003
+      STORAGE_DIR: /tmp/ss
+    ports:
+      - "8203:8203"
+    volumes:
+      - ss3_data:/tmp/ss
+
+  storageservice4:
+    image: storageservice:0.0.1
+    container_name: storageservice4
+    build:
+      context: ./../
+      dockerfile: ./build/Dockerfile.storageservice
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8204
+      ADVERTISED_ADDR: storageservice4:8204
+      LOCATOR_URL: http://fileservice:8300
+      SERVICE_UUID: 00000000-0000-0000-0000-000000000004
+      STORAGE_DIR: /tmp/ss
+    ports:
+      - "8204:8204"
+    volumes:
+      - ss4_data:/tmp/ss
+
+  storageservice5:
+    image: storageservice:0.0.1
+    container_name: storageservice5
+    build:
+      context: ./../
+      dockerfile: ./build/Dockerfile.storageservice
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8205
+      ADVERTISED_ADDR: storageservice5:8205
+      LOCATOR_URL: http://fileservice:8300
+      SERVICE_UUID: 00000000-0000-0000-0000-000000000005
+      STORAGE_DIR: /tmp/ss
+    ports:
+      - "8205:8205"
+    volumes:
+      - ss5_data:/tmp/ss
+
+  storageservice6:
+    image: storageservice:0.0.1
+    container_name: storageservice6
+    build:
+      context: ./../
+      dockerfile: ./build/Dockerfile.storageservice
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8206
+      ADVERTISED_ADDR: storageservice6:8206
+      LOCATOR_URL: http://fileservice:8300
+      SERVICE_UUID: 00000000-0000-0000-0000-000000000006
+      STORAGE_DIR: /tmp/ss
+    ports:
+      - "8206:8206"
+    volumes:
+      - ss6_data:/tmp/ss
+
+volumes:
+  pgdata:
+  ss1_data:
+  ss2_data:
+  ss3_data:
+  ss4_data:
+  ss5_data:
+  ss6_data:
