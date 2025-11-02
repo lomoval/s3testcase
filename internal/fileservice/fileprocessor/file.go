@@ -70,7 +70,7 @@ func (f *File) Close() {
 			os.Remove(part.FilePath)
 		}
 	}
-	f.Parts = nil // чистим срез
+	f.Parts = nil
 }
 
 func (f *File) getPart(index int) filePart {

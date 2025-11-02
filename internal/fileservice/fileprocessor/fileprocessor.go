@@ -241,17 +241,8 @@ func (fp *FileProcessor) GetAsync(
 						f.Name,
 						res.Number,
 					)
-					task.ErrCount++
-					if task.ErrCount > 3 {
-						log.Err(ErrDownloadFailed).Msgf("too many errors with task %s-%s %d",
-							f.UUID.String(),
-							f.Name,
-							res.Number,
-						)
-						f.readyPartCh <- -1
-
-						return
-					}
+					f.readyPartCh <- -1
+					return
 				}
 			case <-ctx.Done():
 				return

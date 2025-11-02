@@ -163,7 +163,7 @@ func (s *Service) Download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 
 	if _, err := io.Copy(w, data.Reader); err != nil {
-		http.Error(w, "failed to send file", http.StatusInternalServerError)
+		log.Err(err).Msgf("failed send file '%s'", filename)
 		return
 	}
 }
