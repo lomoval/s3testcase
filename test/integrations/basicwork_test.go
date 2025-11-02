@@ -24,20 +24,20 @@ package integrations
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go/network"
 	"io"
 	"net/http"
-	"s3testcase/internal/fileservice/db"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/docker/go-connections/nat"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"s3testcase/internal/fileservice/db"
 )
 
 const (
@@ -104,7 +104,7 @@ func TestIntegrationUploadDownload(t *testing.T) {
 		printContainerLogs(t.Context(), containers.fileservice.C)
 	}()
 	reader := NewHashingGeneratorReader(size)
-	sc, err := uploadToServer(uploadURL, fileName, contentType, size, reader)
+	sc, err := uploadToServer(t.Context(), uploadURL, fileName, contentType, size, reader)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, sc)
 
@@ -196,6 +196,7 @@ func TestIntegrationUploadDownload(t *testing.T) {
 }
 
 func startTestContainers(t *testing.T, numStorages int) (*testContainers, error) {
+	t.Helper()
 	ctx := t.Context()
 	tc := &testContainers{storageservicesMap: make(map[string]*containerData)}
 	var err error
@@ -266,7 +267,6 @@ func runPostgres(ctx context.Context, net *testcontainers.DockerNetwork) (*conta
 	if err != nil {
 		_ = c.Terminate(ctx)
 		return nil, err
-
 	}
 	dbURL := fmt.Sprintf(
 		"postgresql://%s:%d/%s?sslmode=disable&user=%s&password=%s",
@@ -284,7 +284,11 @@ func runPostgres(ctx context.Context, net *testcontainers.DockerNetwork) (*conta
 	}, nil
 }
 
-func runFileService(ctx context.Context, net *testcontainers.DockerNetwork, testEnv map[string]string) (*containerData, error) {
+func runFileService(
+	ctx context.Context,
+	net *testcontainers.DockerNetwork,
+	testEnv map[string]string,
+) (*containerData, error) {
 	env := map[string]string{
 		// DB
 		"DB_HOST":     "postgres",
@@ -310,12 +314,11 @@ func runFileService(ctx context.Context, net *testcontainers.DockerNetwork, test
 			Context:    dockerContext,
 			Dockerfile: fileserviceDockerfile,
 		},
-		ExposedPorts: []string{strPort},
-		Env:          env,
-		WaitingFor:   wait.ForListeningPort(nat.Port(strPort)),
-		Cmd:          []string{"./fileservice"},
-		Tmpfs:        map[string]string{"/tmp/fs": "rw"},
-
+		ExposedPorts:   []string{strPort},
+		Env:            env,
+		WaitingFor:     wait.ForListeningPort(nat.Port(strPort)),
+		Cmd:            []string{"./fileservice"},
+		Tmpfs:          map[string]string{"/tmp/fs": "rw"},
 		Networks:       []string{net.Name},
 		NetworkAliases: map[string][]string{net.Name: {"fileservice"}},
 	}
@@ -344,7 +347,12 @@ func runFileService(ctx context.Context, net *testcontainers.DockerNetwork, test
 	}, nil
 }
 
-func runStorageService(ctx context.Context, net *testcontainers.DockerNetwork, num int, testEnv map[string]string) (*containerData, error) {
+func runStorageService(
+	ctx context.Context,
+	net *testcontainers.DockerNetwork,
+	num int,
+	testEnv map[string]string,
+) (*containerData, error) {
 	strNum := strconv.Itoa(num)
 	env := map[string]string{
 		// Service
@@ -383,7 +391,6 @@ func runStorageService(ctx context.Context, net *testcontainers.DockerNetwork, n
 	if err != nil {
 		_ = c.Terminate(ctx)
 		return nil, err
-
 	}
 	return &containerData{
 		C:           c,
@@ -392,9 +399,16 @@ func runStorageService(ctx context.Context, net *testcontainers.DockerNetwork, n
 	}, nil
 }
 
-func uploadToServer(url string, fileName string, contentType string, size int64, streamer io.Reader) (int, error) {
+func uploadToServer(
+	ctx context.Context,
+	url string,
+	fileName string,
+	contentType string,
+	size int64,
+	streamer io.Reader,
+) (int, error) {
 	client := &http.Client{}
-	request, err := http.NewRequest(http.MethodPost, url, streamer)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, streamer)
 	if err != nil {
 		return -1, err
 	}

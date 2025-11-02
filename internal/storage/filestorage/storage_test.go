@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 func TestDirSize(t *testing.T) {
 	c := Config{StorageDir: t.TempDir()}
 
-	content := "test content"
+	content := t.Name()
 	expectedSize := int64(len(content) * 4)
 	require.NoError(t, createFileInDir(path.Join(c.StorageDir, dataDirName), "test1.txt", content))
 	require.NoError(t, createFileInDir(path.Join(c.StorageDir, dataDirName), "test2.txt", content))
@@ -83,7 +83,7 @@ func TestStorageDirectoriesExist(t *testing.T) {
 func TestStorageSizeInitial(t *testing.T) {
 	c := Config{StorageDir: t.TempDir()}
 
-	content := "test content"
+	content := t.Name()
 	expectedSize := int64(len(content) * 4)
 	require.NoError(t, createFileInDir(path.Join(c.StorageDir, dataDirName), "test1.txt", content))
 	require.NoError(t, createFileInDir(path.Join(c.StorageDir, dataDirName), "test2.txt", content))
@@ -102,7 +102,7 @@ func TestStorageSizeInitial(t *testing.T) {
 func TestStorageSave(t *testing.T) {
 	c := Config{StorageDir: t.TempDir()}
 
-	content := "test content"
+	content := t.Name()
 	expectedSize := int64(len(content))
 
 	s := NewStorage(c)
@@ -154,7 +154,7 @@ func TestStorageSaveGet(t *testing.T) {
 	c := Config{StorageDir: t.TempDir()}
 
 	key := "test.txt"
-	content := "test content"
+	content := t.Name()
 	expectedSize := int64(len(content))
 
 	s := NewStorage(c)
@@ -178,7 +178,7 @@ func TestStorageSaveGet(t *testing.T) {
 func TestStorageSaveDelete(t *testing.T) {
 	c := Config{StorageDir: t.TempDir()}
 
-	content := "test content"
+	content := t.Name()
 	contentSize := int64(len(content))
 	expectedSize := int64(len(content) * 3)
 
@@ -222,7 +222,7 @@ func TestStorageDeleteNotExist(t *testing.T) {
 func TestStorageCleanupOnRun(t *testing.T) {
 	c := Config{StorageDir: t.TempDir(), CleanupInterval: 10000 * time.Millisecond, CleanupAge: 5 * time.Millisecond}
 
-	content := "test content"
+	content := t.Name()
 	require.NoError(t, createFileInDir(path.Join(c.StorageDir, tmpDirName), "test.txt", content))
 	time.Sleep(6 * time.Millisecond) // Wait to make file older than cleanup age.
 
@@ -248,7 +248,7 @@ func TestStorageCleanupOnInterval(t *testing.T) {
 	c := Config{StorageDir: t.TempDir(), CleanupInterval: 25 * time.Millisecond, CleanupAge: 300 * time.Millisecond}
 
 	start := time.Now()
-	content := "test content"
+	content := t.Name()
 	require.NoError(t, createFileInDir(path.Join(c.StorageDir, tmpDirName), "test1.txt", content))
 	time.Sleep(100 * time.Millisecond)
 	require.NoError(t, createFileInDir(path.Join(c.StorageDir, tmpDirName), "test2.txt", content))

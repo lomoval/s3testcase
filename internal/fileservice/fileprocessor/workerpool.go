@@ -247,11 +247,11 @@ func download(task FileDownloadTask) error {
 	if err != nil {
 		return err
 	}
-	defer func(Body io.ReadCloser) {
-		if err := Body.Close(); err != nil {
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
 			log.Err(err).Msgf("failed close response body for %s", task.DownloadURL)
 		}
-	}(resp.Body)
+	}()
 
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		return err

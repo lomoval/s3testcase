@@ -64,6 +64,7 @@ func TestWorkerPoolUpload(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "12345", string(body))
 		atomic.AddInt32(&receivedRequests, 1)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer server1.Close()
 
@@ -73,6 +74,7 @@ func TestWorkerPoolUpload(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "67890", string(body))
 		atomic.AddInt32(&receivedRequests, 1)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer server1.Close()
 
@@ -82,7 +84,6 @@ func TestWorkerPoolUpload(t *testing.T) {
 		StartIndex: 0,
 		EndIndex:   5,
 		Number:     1,
-		Stored:     true,
 		ResultCh:   resultCh,
 		UploadURL:  server1.URL + "/files/testfile.txt",
 		Ctx:        t.Context(),
@@ -92,7 +93,6 @@ func TestWorkerPoolUpload(t *testing.T) {
 		StartIndex: 5,
 		EndIndex:   10,
 		Number:     2,
-		Stored:     true,
 		ResultCh:   resultCh,
 		UploadURL:  server2.URL + "/files/testfile.txt",
 		Ctx:        t.Context(),
@@ -129,6 +129,7 @@ func TestFileProcessorNotStored(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "12345", string(body))
 		atomic.AddInt32(&receivedRequests, 1)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer server1.Close()
 
@@ -147,7 +148,6 @@ func TestFileProcessorNotStored(t *testing.T) {
 		StartIndex: 0,
 		EndIndex:   5,
 		Number:     1,
-		Stored:     false,
 		ResultCh:   resultCh,
 		UploadURL:  server1.URL + "/files/testfile.txt",
 		Ctx:        t.Context(),
@@ -157,7 +157,6 @@ func TestFileProcessorNotStored(t *testing.T) {
 		StartIndex: 5,
 		EndIndex:   10,
 		Number:     2,
-		Stored:     false,
 		ResultCh:   resultCh,
 		UploadURL:  server2.URL + "/files/testfile.txt",
 		Ctx:        t.Context(),

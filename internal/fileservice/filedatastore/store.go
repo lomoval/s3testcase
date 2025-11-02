@@ -221,7 +221,11 @@ func (s *Store) DeleteFileLocationByID(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *Store) GetFileLocations(ctx context.Context, fileUUID uuid.UUID, unprocessedOnly bool) ([]FileLocation, error) {
+func (s *Store) GetFileLocations(
+	ctx context.Context,
+	fileUUID uuid.UUID,
+	unprocessedOnly bool,
+) ([]FileLocation, error) {
 	const query = `
 		SELECT id, file_uuid, location_uuid, size, part_number, processed_at
 		FROM file_locations

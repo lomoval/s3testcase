@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -71,7 +72,6 @@ func main() {
 	}
 }
 
-// --- Upload function ---
 func uploadFile(addr, filePath string) error {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
@@ -112,8 +112,10 @@ func uploadFile(addr, filePath string) error {
 		return fmt.Errorf("cannot seek file: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	startTime := time.Now()
-	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s/upload", addr), f)
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s/upload", addr), f)
 	if err != nil {
 		return fmt.Errorf("cannot create request: %w", err)
 	}
@@ -146,7 +148,7 @@ func downloadFile(addr, fileName, outPath string) error {
 	url := fmt.Sprintf("http://%s/files/%s", addr, fileName)
 	fmt.Printf("Downloading file from %s\n", url)
 	startTime := time.Now()
-	resp, err := http.Get(url)
+	resp, err := http.Get(url) //nolint:gosec,G107
 	if err != nil {
 		return fmt.Errorf("failed to GET file: %w", err)
 	}

@@ -150,10 +150,8 @@ func (f *File) copy(ctx context.Context, w io.Writer) error {
 
 type processingFile struct {
 	FileData
-	UUID        uuid.UUID
-	Parts       []filePart
-	readyPartCh chan int // For notification if we have a new part
-	mutex       sync.Mutex
+	UUID  uuid.UUID
+	Parts []filePart
 }
 
 type filePart struct {

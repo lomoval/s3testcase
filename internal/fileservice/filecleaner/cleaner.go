@@ -225,6 +225,11 @@ func (c *Cleaner) deleteFromLocation(ctx context.Context, locationUUID uuid.UUID
 		"http://"+s.Addr+"/files/"+fileName,
 		nil,
 	)
+	if err != nil {
+		log.Err(err).Msgf("failed to create request for file %s from location %s", fileName, locationUUID.String())
+		return err
+	}
+
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {

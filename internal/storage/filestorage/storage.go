@@ -26,7 +26,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -74,9 +73,7 @@ type Storage struct {
 	cleanupInterval time.Duration
 	stopCh          chan struct{}
 	wg              sync.WaitGroup
-
-	sizeMutex sync.Mutex
-	size      int64
+	size            int64
 }
 
 func NewStorage(cfg Config) *Storage {
@@ -108,7 +105,7 @@ func (s *Storage) Run() error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			if s.CleanupTempFiles(s.maxAge) != nil {
+			if s.cleanupTempFiles(s.maxAge) != nil {
 				log.Err(err).Msg("cleanup failed")
 			}
 
@@ -117,7 +114,7 @@ func (s *Storage) Run() error {
 			for {
 				select {
 				case <-t.C:
-					if s.CleanupTempFiles(s.maxAge) != nil {
+					if s.cleanupTempFiles(s.maxAge) != nil {
 						log.Err(err).Msg("cleanup failed")
 					}
 				case <-s.stopCh:
@@ -212,6 +209,10 @@ func (s *Storage) Delete(key string) error {
 	return nil
 }
 
+func (s *Storage) Size() int64 {
+	return atomic.LoadInt64(&s.size)
+}
+
 func (s *Storage) addSize(size int64) {
 	atomic.AddInt64(&s.size, size)
 }
@@ -245,7 +246,7 @@ func (s *Storage) saveReader(path string, r io.Reader) (size int64, err error) {
 	return
 }
 
-func (s *Storage) CleanupTempFiles(maxAge time.Duration) error {
+func (s *Storage) cleanupTempFiles(maxAge time.Duration) error {
 	return filepath.Walk(s.tmpDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -260,91 +261,6 @@ func (s *Storage) CleanupTempFiles(maxAge time.Duration) error {
 		}
 		return nil
 	})
-}
-
-func (s *Storage) Size() int64 {
-	return atomic.LoadInt64(&s.size)
-}
-
-func dirSize(root string, maxWorkers int) (int64, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	var total int64
-	var wg sync.WaitGroup
-	sizeCh := make(chan int64)
-	errCh := make(chan error, 1)
-	sem := make(chan struct{}, maxWorkers)
-
-	// Сборщик результатов
-	go func() {
-		for s := range sizeCh {
-			total += s
-		}
-	}()
-
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			cancel()
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return context.Canceled
-		default:
-		}
-
-		sem <- struct{}{}
-		wg.Add(1)
-
-		go func(p string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			info, err := os.Stat(p)
-			if err != nil {
-				select {
-				case errCh <- err:
-				default:
-				}
-				cancel()
-				return
-			}
-
-			sizeCh <- info.Size()
-		}(path)
-
-		return nil
-	})
-
-	wg.Wait()
-	close(sizeCh)
-
-	select {
-	case e := <-errCh:
-		return total, e
-	default:
-	}
-
-	if errors.Is(err, context.Canceled) {
-		return total, fmt.Errorf("обход остановлен из-за ошибки")
-	}
-
-	for s := range sizeCh {
-		total += s
-	}
-
-	return total, err
 }
 
 func GetDirSize(ctx context.Context, root string, workers int) (int64, error) {

@@ -159,7 +159,9 @@ func (s *LiveSender) sendLive() error {
 		return err
 	}
 	u, _ := url.JoinPath(s.locatorAddr, "live")
-	req, err := http.NewRequest("POST", u, bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewReader(body))
 	if err != nil {
 		log.Err(err).Msg("failed to create live request")
 		return err

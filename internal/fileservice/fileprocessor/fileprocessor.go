@@ -545,7 +545,7 @@ func (fp *FileProcessor) waitProcessingParts(
 					file.Name,
 					res.Number,
 					part.Storage.UUID.String())
-				id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, int(i)+1, part.Size)
+				id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, i+1, part.Size)
 				if err != nil {
 					return time.Time{}, err
 				}
