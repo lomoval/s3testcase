@@ -32,6 +32,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+
 	"s3testcase/internal/utils/sys"
 )
 

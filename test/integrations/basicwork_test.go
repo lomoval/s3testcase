@@ -40,6 +40,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
+
 	"s3testcase/internal/fileservice/db"
 )
 

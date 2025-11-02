@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+
 	"s3testcase/internal/storagelocator"
 	ulog "s3testcase/internal/utils/log"
 )

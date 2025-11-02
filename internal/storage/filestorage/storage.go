@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+
 	"s3testcase/internal/storage"
 	"s3testcase/internal/utils/sys"
 )
