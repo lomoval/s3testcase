@@ -116,7 +116,7 @@ func (l *Locator) Storages() []StorageInfo {
 				Size: request.StorageSizeBytes,
 			})
 		} else {
-			log.Warn().Msgf(
+			log.Error().Msgf(
 				"storage %s is not active, no live request from %s",
 				request.ServiceID,
 				request.Timestamp.Format("02.01.2006 15:04:05"),

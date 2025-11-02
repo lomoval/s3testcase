@@ -198,13 +198,17 @@ func (s *Store) AddLocation(
 	locationUUID uuid.UUID,
 	partNumber int,
 	size int64,
-) error {
+) (int64, error) {
 	query := `
 		INSERT INTO file_locations (file_uuid, location_uuid, part_number, size)
 		VALUES ($1, $2, $3, $4)
+		RETURNING id
 	`
-	_, err := s.db.ExecContext(ctx, query, fileUUID, locationUUID, partNumber, size)
-	return err
+	var id int64
+	if err := s.db.QueryRowContext(ctx, query, fileUUID, locationUUID, partNumber, size).Scan(&id); err != nil {
+		return -1, err
+	}
+	return id, nil
 }
 
 func (s *Store) DeleteFileLocationByID(ctx context.Context, id int64) error {
@@ -252,30 +256,27 @@ func (s *Store) GetFileLocations(ctx context.Context, fileUUID uuid.UUID, unproc
 
 func (s *Store) DeleteLocation(
 	ctx context.Context,
-	fileUUID uuid.UUID,
-	locationUUID uuid.UUID,
-	partNumber int,
+	id int64,
 ) error {
 	query := `
 		DELETE FROM file_locations 
-		WHERE file_uuid = $1 AND location_uuid = $2 AND part_number = $3
+		WHERE id = $1 
 	`
-	_, err := s.db.ExecContext(ctx, query, fileUUID, locationUUID, partNumber)
+	_, err := s.db.ExecContext(ctx, query, id)
 	return err
 }
 
 func (s *Store) SetLocationProcessedTime(
 	ctx context.Context,
-	fileUUID uuid.UUID,
-	partNumber int,
+	id int64,
 	time time.Time,
 ) error {
 	query := `
 		UPDATE file_locations
-		SET processed_at = $3
-		WHERE file_uuid = $1 AND part_number = $2
+		SET processed_at = $2
+		WHERE id = $1
 	`
-	_, err := s.db.ExecContext(ctx, query, fileUUID, partNumber, time)
+	_, err := s.db.ExecContext(ctx, query, id, time)
 	return err
 }
 

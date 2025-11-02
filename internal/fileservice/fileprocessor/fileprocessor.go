@@ -338,7 +338,7 @@ func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFi
 				}
 
 				s := storagesIter.Next()
-				err = fp.store.AddLocation(ctx, file.UUID, s.UUID, partNumber, end-start)
+				id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, partNumber, end-start)
 				if err != nil {
 					return err
 				}
@@ -349,8 +349,8 @@ func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFi
 					FilePath:   filePath,
 					StartIndex: start,
 					EndIndex:   end,
-					Stored:     false,
 					Storage:    s,
+					LocationID: id,
 					ResultCh:   resCh,
 					Ctx:        taskDoneCtx,
 				}
@@ -459,7 +459,7 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 			end = written
 		}
 		s := storageIter.Next()
-		err = fp.store.AddLocation(ctx, file.UUID, s.UUID, int(i)+1, end-start)
+		id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, int(i)+1, end-start)
 		if err != nil {
 			return err
 		}
@@ -470,7 +470,7 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 			EndIndex:   end,
 			Size:       end - start,
 			Number:     int(i) + 1,
-			Stored:     true,
+			LocationID: id,
 			Storage:    s,
 			ResultCh:   resCh,
 			Ctx:        taskDoneCtx,
@@ -514,17 +514,17 @@ func (fp *FileProcessor) waitProcessingParts(
 		case <-parts[i+1].Ctx.Done():
 		case res := <-parts[i+1].ResultCh:
 			if res.Err == nil {
-				i++
 				if processedTime.Before(res.ProcessedTime) {
 					processedTime = res.ProcessedTime
 				}
-				if err := fp.store.SetLocationProcessedTime(ctx, file.UUID, res.Number, res.ProcessedTime); err != nil {
+				if err := fp.store.SetLocationProcessedTime(ctx, parts[i+1].LocationID, res.ProcessedTime); err != nil {
 					return time.Time{}, err
 				}
+				i++
 			} else {
 				part := parts[res.Number]
 				log.Err(res.Err).Msgf("part %s-%s %d failed", file.UUID.String(), file.Name, res.Number)
-				if err := fp.store.DeleteLocation(ctx, file.UUID, part.LocationUUID, res.Number); err != nil {
+				if err := fp.store.DeleteLocation(ctx, parts[i+1].LocationID); err != nil {
 					return time.Time{}, err
 				}
 
@@ -545,10 +545,11 @@ func (fp *FileProcessor) waitProcessingParts(
 					file.Name,
 					res.Number,
 					part.Storage.UUID.String())
-				err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, int(i)+1, part.Size)
+				id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, int(i)+1, part.Size)
 				if err != nil {
 					return time.Time{}, err
 				}
+				part.LocationID = id
 				fp.workerPool.AddUploadTask(part.ToWorkerTask())
 			}
 		}

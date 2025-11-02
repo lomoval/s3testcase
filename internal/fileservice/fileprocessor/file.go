@@ -170,13 +170,11 @@ type fileUploadPartData struct {
 	StartIndex int64
 	EndIndex   int64
 	Size       int64
-	// File is fully stored on disk.
-	Stored       bool
-	LocationUUID uuid.UUID
-	ResultCh     chan FileTaskResult
-	Ctx          context.Context
-	ErrCount     int
-	Storage      storagelocator.StorageInfo
+	LocationID int64
+	ResultCh   chan FileTaskResult
+	Ctx        context.Context
+	ErrCount   int
+	Storage    storagelocator.StorageInfo
 }
 
 func (p *fileUploadPartData) ToWorkerTask() FileUploadTask {
@@ -185,7 +183,6 @@ func (p *fileUploadPartData) ToWorkerTask() FileUploadTask {
 		FilePath:   p.FilePath,
 		StartIndex: p.StartIndex,
 		EndIndex:   p.EndIndex,
-		Stored:     p.Stored,
 		UploadURL:  fmt.Sprintf("http://%s/files/%s-%d", p.Storage.Addr, p.FileUUID.String(), p.Number),
 		ResultCh:   p.ResultCh,
 		Ctx:        p.Ctx,

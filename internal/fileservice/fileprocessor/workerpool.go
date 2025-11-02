@@ -44,12 +44,10 @@ type FileUploadTask struct {
 	StartIndex int64
 	EndIndex   int64
 	Size       int64
-	// File is fully stored on disk.
-	Stored    bool
-	UploadURL string
-	ResultCh  chan FileTaskResult
-	Ctx       context.Context
-	ErrCount  int
+	UploadURL  string
+	ResultCh   chan FileTaskResult
+	Ctx        context.Context
+	ErrCount   int
 }
 
 type FileDownloadTask struct {
@@ -161,11 +159,7 @@ func (p *UploadWorkerPool) uploadWorker() {
 			}
 			log.Debug().Msgf("worker get task: %d %s", task.Number, task.UploadURL)
 			var err error
-			if task.Stored {
-				err = processPartMmap(task)
-			} else {
-				err = processPartReadAt(task)
-			}
+			err = processPartMmap(task)
 
 			if err != nil {
 				log.Err(err).Msgf("task failed %d %s", task.Number, task.UploadURL)
@@ -263,27 +257,6 @@ func download(task FileDownloadTask) error {
 		return err
 	}
 
-	return nil
-}
-
-func processPartReadAt(t FileUploadTask) error {
-	f, err := os.Open(t.FilePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	buf := make([]byte, t.EndIndex-t.StartIndex)
-	_, err = f.ReadAt(buf, t.StartIndex)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-
-	err = upload(t.Ctx, t.UploadURL, t.Number, buf)
-	if err != nil {
-		log.Err(err).Msgf("part %d (%d–%d): %d bytes", t.Number, t.StartIndex, t.EndIndex, len(buf))
-		return err
-	}
 	return nil
 }
 
