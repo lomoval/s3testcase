@@ -26,7 +26,7 @@ import (
 	"path"
 	"time"
 
-	"s3testcase/internal/util"
+	usys "s3testcase/internal/utils/sys"
 )
 
 type Config struct {
@@ -37,8 +37,8 @@ type Config struct {
 
 func LoadConfig() Config {
 	return Config{
-		UploadDir:   util.GetEnv("UPLOAD_DIR", path.Join(os.TempDir(), "fp-upload")),
-		DownloadDir: util.GetEnv("DOWNLOAD_DIR", path.Join(os.TempDir(), "fp-download")),
+		UploadDir:   usys.GetEnv("UPLOAD_DIR", path.Join(os.TempDir(), "fp-upload")),
+		DownloadDir: usys.GetEnv("DOWNLOAD_DIR", path.Join(os.TempDir(), "fp-download")),
 		FilesMaxAge: 1 * time.Hour,
 	}
 }

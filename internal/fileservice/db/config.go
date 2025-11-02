@@ -26,7 +26,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"s3testcase/internal/util"
+	usys "s3testcase/internal/utils/sys"
 )
 
 type Config struct {
@@ -39,15 +39,15 @@ type Config struct {
 }
 
 func LoadConfig() Config {
-	port, _ := strconv.Atoi(util.GetEnv("DB_PORT", "5432"))
+	port, _ := strconv.Atoi(usys.GetEnv("DB_PORT", "5432"))
 
 	return Config{
-		Host:     util.GetEnv("DB_HOST", "localhost"),
+		Host:     usys.GetEnv("DB_HOST", "localhost"),
 		Port:     port,
-		User:     util.GetEnv("DB_USER", "postgres"),
-		Password: util.GetEnv("DB_PASSWORD", "password"),
-		DBName:   util.GetEnv("DB_NAME", "postgres"),
-		SSLMode:  util.GetEnv("DB_SSLMODE", "disable"),
+		User:     usys.GetEnv("DB_USER", "postgres"),
+		Password: usys.GetEnv("DB_PASSWORD", "password"),
+		DBName:   usys.GetEnv("DB_NAME", "postgres"),
+		SSLMode:  usys.GetEnv("DB_SSLMODE", "disable"),
 	}
 }
 

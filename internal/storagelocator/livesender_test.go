@@ -35,7 +35,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"s3testcase/internal/storagelocator"
-	ulog "s3testcase/internal/util/log"
+	ulog "s3testcase/internal/utils/log"
 )
 
 type testStorageSizer struct {

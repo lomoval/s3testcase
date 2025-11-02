@@ -54,16 +54,15 @@ type Service struct {
 	cleaner   *filecleaner.Cleaner
 	errStopCh chan error
 	running   bool
-	locatorCh chan error
 	done      chan struct{}
 }
 
 func New(cfg Config, l *storagelocator.Locator) (*Service, error) {
-	if err := os.MkdirAll(cfg.FileProcessor.UploadDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.FileProcessor.UploadDir, 0o755); err != nil {
 		return nil, err
 	}
 
-	if err := os.MkdirAll(cfg.FileProcessor.DownloadDir, 0755); err != nil {
+	if err := os.MkdirAll(cfg.FileProcessor.DownloadDir, 0o755); err != nil {
 		return nil, err
 	}
 	bd, err := db.InitDB(cfg.DB.DSN())

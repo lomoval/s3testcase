@@ -357,22 +357,9 @@ func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFi
 		}
 	}
 
-	processedTime, err := fp.waitProcessingParts(ctx, file, parts, storagesIter)
-	if err != nil {
+	if err := fp.waitProcessingParts(ctx, file, parts, storagesIter); err != nil {
 		return err
 	}
-
-	if !processedTime.IsZero() {
-		if err := fp.store.SetFileProcessedTime(ctx, file.UUID, processedTime); err != nil {
-			return err
-		}
-		if err := fp.store.SetCleanItemCleanAfterToNow(ctx, file.UUID); err != nil {
-			log.Err(err).Msgf("failed to set clean outbox clean time")
-		}
-	} else {
-		return fmt.Errorf("failed processing of file '%s'-'%s'", file.Name, file.UUID.String())
-	}
-
 	log.Info().Msgf("file %s-%s processed", file.UUID.String(), file.Name)
 	return nil
 }
@@ -467,22 +454,9 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 		fp.workerPool.AddUploadTask(t.ToWorkerTask())
 	}
 
-	processedTime, err := fp.waitProcessingParts(ctx, file, parts, storageIter)
-	if err != nil {
+	if err := fp.waitProcessingParts(ctx, file, parts, storageIter); err != nil {
 		return err
 	}
-
-	if !processedTime.IsZero() {
-		if err := fp.store.SetFileProcessedTime(ctx, file.UUID, processedTime); err != nil {
-			return err
-		}
-		if err := fp.store.SetCleanItemCleanAfterToNow(ctx, file.UUID); err != nil {
-			log.Err(err).Msgf("failed to set clean outbox clean time")
-		}
-	} else {
-		return fmt.Errorf("failed processing of file '%s'-'%s'", file.Name, file.UUID.String())
-	}
-
 	log.Info().Msgf("file %s-%s processed", file.UUID.String(), file.Name)
 	return nil
 }
@@ -492,7 +466,7 @@ func (fp *FileProcessor) waitProcessingParts(
 	file *processingFile,
 	parts map[int]*fileUploadPartData,
 	storagesIter roundIterator,
-) (time.Time, error) {
+) error {
 	// Processed time for file is max time of processed time of parts
 	var processedTime time.Time
 	for i := 0; i < len(parts); {
@@ -505,43 +479,55 @@ func (fp *FileProcessor) waitProcessingParts(
 					processedTime = res.ProcessedTime
 				}
 				if err := fp.store.SetLocationProcessedTime(ctx, parts[i+1].LocationID, res.ProcessedTime); err != nil {
-					return time.Time{}, err
+					return err
 				}
 				i++
-			} else {
-				part := parts[res.Number]
-				log.Err(res.Err).Msgf("part %s-%s %d failed", file.UUID.String(), file.Name, res.Number)
-				if err := fp.store.DeleteLocation(ctx, parts[i+1].LocationID); err != nil {
-					return time.Time{}, err
-				}
+				continue
+			}
 
-				part.ErrCount++
-				if part.ErrCount > maxErrorsOnPart {
-					log.Err(res.Err).Msgf(
-						"uploading failed - too many errors with tasks %s-%s %d",
-						file.UUID.String(),
-						file.Name,
-						res.Number,
-					)
-					return time.Time{}, fmt.Errorf("%s-%s %d: %w", file.UUID.String(), file.Name, res.Number, ErrUploadFailed)
-				}
+			part := parts[res.Number]
+			log.Err(res.Err).Msgf("part %s-%s %d failed", file.UUID.String(), file.Name, res.Number)
+			if err := fp.store.DeleteLocation(ctx, parts[i+1].LocationID); err != nil {
+				return err
+			}
 
-				part.Storage = storagesIter.Next()
-				log.Debug().Msgf("trying to upload %s-%s %d to other storage %s",
+			part.ErrCount++
+			if part.ErrCount > maxErrorsOnPart {
+				log.Err(res.Err).Msgf(
+					"uploading failed - too many errors with tasks %s-%s %d",
 					file.UUID.String(),
 					file.Name,
 					res.Number,
-					part.Storage.UUID.String())
-				id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, i+1, part.Size)
-				if err != nil {
-					return time.Time{}, err
-				}
-				part.LocationID = id
-				fp.workerPool.AddUploadTask(part.ToWorkerTask())
+				)
+				return fmt.Errorf("%s-%s %d: %w", file.UUID.String(), file.Name, res.Number, ErrUploadFailed)
 			}
+
+			part.Storage = storagesIter.Next()
+			log.Debug().Msgf("trying to upload %s-%s %d to other storage %s",
+				file.UUID.String(),
+				file.Name,
+				res.Number,
+				part.Storage.UUID.String())
+			id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, i+1, part.Size)
+			if err != nil {
+				return err
+			}
+			part.LocationID = id
+			fp.workerPool.AddUploadTask(part.ToWorkerTask())
 		}
 	}
-	return processedTime, nil
+
+	if !processedTime.IsZero() {
+		if err := fp.store.SetFileProcessedTime(ctx, file.UUID, processedTime); err != nil {
+			return err
+		}
+		if err := fp.store.SetCleanItemCleanAfterToNow(ctx, file.UUID); err != nil {
+			log.Err(err).Msgf("failed to set clean outbox clean time")
+		}
+	} else {
+		return fmt.Errorf("failed processing of file '%s'-'%s'", file.Name, file.UUID.String())
+	}
+	return nil
 }
 
 func partsDivideParams(size int64, partsCount int) (int64, int64) {

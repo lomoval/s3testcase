@@ -25,7 +25,7 @@ import (
 	"s3testcase/internal/fileservice/db"
 	"s3testcase/internal/fileservice/fileprocessor"
 	"s3testcase/internal/storagelocator"
-	"s3testcase/internal/util"
+	usys "s3testcase/internal/utils/sys"
 )
 
 type Config struct {
@@ -39,8 +39,8 @@ type Config struct {
 
 func LoadConfig() Config {
 	return Config{
-		ListenAddr:    util.GetEnv("LISTEN_ADDR", ":8100"),
-		MigrationsDir: util.GetEnv("MIGRATIONS_DIR", "internal/fileservice/db/migrations"),
+		ListenAddr:    usys.GetEnv("LISTEN_ADDR", ":8100"),
+		MigrationsDir: usys.GetEnv("MIGRATIONS_DIR", "internal/fileservice/db/migrations"),
 		DB:            db.LoadConfig(),
 		Locator:       storagelocator.LoadLocatorConfig(),
 		FileProcessor: fileprocessor.LoadConfig(),

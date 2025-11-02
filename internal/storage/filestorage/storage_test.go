@@ -34,7 +34,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-	ulog "s3testcase/internal/util/log"
+	ulog "s3testcase/internal/utils/log"
 )
 
 func TestMain(m *testing.M) {
@@ -190,10 +190,10 @@ func TestStorageSaveDelete(t *testing.T) {
 	require.Equal(t, expectedSize, s.Size())
 
 	require.NoError(t, s.Delete("test2.txt"))
-	data, err := s.Get("test2.txt")
+	_, err := s.Get("test2.txt")
 	require.ErrorIs(t, err, ErrFileNotFound)
 
-	data, err = s.Get("test1.txt")
+	data, err := s.Get("test1.txt")
 	require.NoError(t, err)
 	require.NoError(t, data.Close())
 	require.Equal(t, contentSize, data.Size)
@@ -317,8 +317,8 @@ func fileSize(path string) (int64, error) {
 }
 
 func createFileInDir(dir, filename, content string) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644)
 }

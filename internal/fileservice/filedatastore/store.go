@@ -309,6 +309,7 @@ func (s *Store) SetCleanItemCleanAfterToNow(ctx context.Context, uuid uuid.UUID)
 }
 
 func (s *Store) GetCleaningItemsBatch(ctx context.Context, limit int) ([]CleanItem, error) {
+	//nolint:gosec
 	query := `
 		SELECT
 			co.id,

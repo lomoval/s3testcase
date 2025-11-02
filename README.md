@@ -109,6 +109,9 @@ docker compose -f ./build/docker-compose.yml up -d
 ```
 
 The `File Service` exposes port 8100, which can be used to upload or download files.
+After starting the `File Service`, it waits for 6 instances of the `Storage Service` 
+(which are expected to send a live-message to the `Locator`) before beginning to listen on its designated port. 
+The duration this process takes may vary depending on when each service is started.
 
 Upload a file
 ```

@@ -148,9 +148,16 @@ func downloadFile(addr, fileName, outPath string) error {
 	url := fmt.Sprintf("http://%s/files/%s", addr, fileName)
 	fmt.Printf("Downloading file from %s\n", url)
 	startTime := time.Now()
-	resp, err := http.Get(url) //nolint:gosec,G107
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to GET file: %w", err)
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
 

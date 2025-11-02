@@ -160,7 +160,6 @@ func (p *UploadWorkerPool) uploadWorker() {
 			log.Debug().Msgf("worker get task: %d %s", task.Number, task.UploadURL)
 			var err error
 			err = processPartMmap(task)
-
 			if err != nil {
 				log.Err(err).Msgf("task failed %d %s", task.Number, task.UploadURL)
 			}

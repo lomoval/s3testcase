@@ -32,7 +32,10 @@ import (
 	"time"
 
 	"github.com/docker/go-connections/nat"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
@@ -367,14 +370,14 @@ func runStorageService(
 	}
 	strPort := strings.Split(env["LISTEN_ADDR"], ":")[1]
 	req := testcontainers.ContainerRequest{
-		//Image: fileserviceImage,
+		// Image: fileserviceImage,
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    dockerContext,
 			Dockerfile: storageserviceDockerfile,
 		},
 		ExposedPorts: []string{strPort},
 		Env:          env,
-		//WaitingFor:     wait.ForListeningPort(nat.Port(strPort)),
+		// WaitingFor:     wait.ForListeningPort(nat.Port(strPort)),
 		Cmd:            []string{"./storageservice"},
 		Tmpfs:          map[string]string{"/tmp/ss/": "rw"},
 		Networks:       []string{net.Name},

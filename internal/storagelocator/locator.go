@@ -32,7 +32,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"s3testcase/internal/util"
+	"s3testcase/internal/utils/sys"
 )
 
 var ErrStorageNotFound = fmt.Errorf("storage not found")
@@ -49,7 +49,7 @@ type LocatorConfig struct {
 
 func LoadLocatorConfig() LocatorConfig {
 	return LocatorConfig{
-		ListenAddr: util.GetEnv("STORAGE_LOCATOR_LISTEN_ADDR", ":8090"),
+		ListenAddr: usys.GetEnv("STORAGE_LOCATOR_LISTEN_ADDR", ":8090"),
 	}
 }
 

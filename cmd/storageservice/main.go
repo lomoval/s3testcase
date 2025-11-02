@@ -33,7 +33,7 @@ import (
 	"s3testcase/internal/storage/filestorage"
 	"s3testcase/internal/storagelocator"
 	"s3testcase/internal/storageservice"
-	ulog "s3testcase/internal/util/log"
+	ulog "s3testcase/internal/utils/log"
 )
 
 func main() {

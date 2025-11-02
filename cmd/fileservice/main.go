@@ -28,11 +28,14 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"s3testcase/internal/fileservice"
 	"s3testcase/internal/storagelocator"
-	ulog "s3testcase/internal/util/log"
+	ulog "s3testcase/internal/utils/log"
 )
 
 func main() {

@@ -32,7 +32,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"s3testcase/internal/util"
+	"s3testcase/internal/utils/sys"
 )
 
 const sendInterval = 10 * time.Second
@@ -50,9 +50,9 @@ type LiveSenderConfig struct {
 
 func LoadLiveSenderConfig() LiveSenderConfig {
 	return LiveSenderConfig{
-		AdvertisedAddr: util.GetEnv("ADVERTISED_ADDR", "127.0.0.0.1.:8201"),
-		ServiceUUID:    uuid.MustParse(util.GetEnv("SERVICE_UUID", "")),
-		LocatorURL:     util.GetEnv("LOCATOR_URL", "http://127.0.0.0.1:8300"),
+		AdvertisedAddr: usys.GetEnv("ADVERTISED_ADDR", "127.0.0.0.1.:8201"),
+		ServiceUUID:    uuid.MustParse(usys.GetEnv("SERVICE_UUID", "")),
+		LocatorURL:     usys.GetEnv("LOCATOR_URL", "http://127.0.0.0.1:8300"),
 		SendInterval:   sendInterval,
 	}
 }

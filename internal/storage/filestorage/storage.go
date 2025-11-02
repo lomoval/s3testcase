@@ -36,7 +36,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"s3testcase/internal/storage"
-	"s3testcase/internal/util"
+	"s3testcase/internal/utils/sys"
 )
 
 const (
@@ -55,11 +55,11 @@ type Config struct {
 }
 
 func LoadConfig() Config {
-	dir := util.GetEnv("STORAGE_DIR", path.Join(os.TempDir(), "storage"))
+	dir := usys.GetEnv("STORAGE_DIR", path.Join(os.TempDir(), "storage"))
 	return Config{
 		StorageDir:      dir,
-		TmpDir:          util.GetEnv("STORAGE_TMP_DIR", path.Join(dir, tmpDirName)),
-		DataDir:         util.GetEnv("STORAGE_DATA_DIR", path.Join(dir, dataDirName)),
+		TmpDir:          usys.GetEnv("STORAGE_TMP_DIR", path.Join(dir, tmpDirName)),
+		DataDir:         usys.GetEnv("STORAGE_DATA_DIR", path.Join(dir, dataDirName)),
 		CleanupInterval: 5 * time.Minute,
 		CleanupAge:      15 * time.Minute,
 	}
@@ -88,17 +88,20 @@ func NewStorage(cfg Config) *Storage {
 }
 
 func (s *Storage) Run() error {
-	err := os.MkdirAll(s.dataDir, 0755)
+	err := os.MkdirAll(s.dataDir, 0o755)
 	if err != nil {
 		return err
 	}
 
-	err = os.MkdirAll(s.tmpDir, 0755)
+	err = os.MkdirAll(s.tmpDir, 0o755)
 	if err != nil {
 		return err
 	}
 
 	s.size, err = getDirSize(context.Background(), s.dataDir, runtime.NumCPU())
+	if err != nil {
+		return err
+	}
 
 	s.stopCh = make(chan struct{})
 	if s.cleanupInterval > 0 {
@@ -148,7 +151,7 @@ func (s *Storage) Save(ctx context.Context, key string, r io.Reader) error {
 	tmpPath := filepath.Join(s.tmpDir, key)
 	dataPath := filepath.Join(s.dataDir, key)
 
-	size, err := s.saveReader(tmpPath, r)
+	size, err := s.saveReader(ctx, tmpPath, r)
 	if err != nil {
 		return err
 	}
@@ -217,7 +220,7 @@ func (s *Storage) addSize(size int64) {
 	atomic.AddInt64(&s.size, size)
 }
 
-func (s *Storage) saveReader(path string, r io.Reader) (size int64, err error) {
+func (s *Storage) saveReader(ctx context.Context, path string, r io.Reader) (size int64, err error) {
 	out, err := os.Create(path)
 	if err != nil {
 		return -1, err
@@ -237,13 +240,35 @@ func (s *Storage) saveReader(path string, r io.Reader) (size int64, err error) {
 		}
 	}()
 
-	size, err = io.Copy(out, r)
-	if err != nil {
-		size = -1
-		return
-	}
+	return writeWithContext(ctx, r, out, size)
+}
 
-	return
+func writeWithContext(ctx context.Context, r io.Reader, out *os.File, size int64) (int64, error) {
+	buf := make([]byte, 32*1024)
+	for {
+		select {
+		case <-ctx.Done():
+			return -1, ctx.Err()
+		default:
+			nr, readErr := r.Read(buf)
+			if nr > 0 {
+				nw, writeErr := out.Write(buf[:nr])
+				if writeErr != nil {
+					return -1, writeErr
+				}
+				if nw != nr {
+					return -1, io.ErrShortWrite
+				}
+				size += int64(nw)
+			}
+			if readErr != nil {
+				if readErr == io.EOF {
+					return size, nil
+				}
+				return -1, readErr
+			}
+		}
+	}
 }
 
 func (s *Storage) cleanupTempFiles(maxAge time.Duration) error {
@@ -266,6 +291,35 @@ func (s *Storage) cleanupTempFiles(maxAge time.Duration) error {
 func getDirSize(ctx context.Context, root string, workers int) (int64, error) {
 	var total int64
 	paths := make(chan string, 256)
+
+	wg := startSizeWorkers(ctx, paths, &total, workers)
+	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case paths <- path:
+			return nil
+		}
+	})
+
+	close(paths)
+	wg.Wait()
+
+	if walkErr != nil {
+		return -1, walkErr
+	}
+
+	return total, nil
+}
+
+func startSizeWorkers(ctx context.Context, paths <-chan string, total *int64, workers int) *sync.WaitGroup {
 	var wg sync.WaitGroup
 
 	for i := 0; i < workers; i++ {
@@ -280,49 +334,21 @@ func getDirSize(ctx context.Context, root string, workers int) (int64, error) {
 					if !ok {
 						return
 					}
+
 					info, err := os.Lstat(p)
 					if err != nil {
 						log.Err(err).Msgf("failed to get file info for '%s'", p)
 						continue
 					}
 					if !info.IsDir() {
-						atomic.AddInt64(&total, info.Size())
+						atomic.AddInt64(total, info.Size())
 					}
 				}
 			}
 		}()
 	}
 
-	walkErr := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if !d.IsDir() {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case paths <- path:
-			}
-		}
-		return nil
-	})
-
-	close(paths)
-	wg.Wait()
-
-	if walkErr != nil {
-		if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
-			return atomic.LoadInt64(&total), walkErr
-		}
-		return atomic.LoadInt64(&total), walkErr
-	}
-
-	return atomic.LoadInt64(&total), nil
+	return &wg
 }
 
 func removeFileIgnoreNotExist(filePath string) error {

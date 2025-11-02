@@ -34,7 +34,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"s3testcase/internal/storage"
 	"s3testcase/internal/storagelocator"
-	"s3testcase/internal/util"
+	usys "s3testcase/internal/utils/sys"
 )
 
 const (
@@ -57,8 +57,8 @@ type Service struct {
 
 func LoadConfig() Config {
 	return Config{
-		ListenAddr: util.GetEnv("LISTEN_ADDR", ":8001"),
-		StorageDir: util.GetEnv("STORAGE_DIR", path.Join(os.TempDir(), serviceName)),
+		ListenAddr: usys.GetEnv("LISTEN_ADDR", ":8001"),
+		StorageDir: usys.GetEnv("STORAGE_DIR", path.Join(os.TempDir(), serviceName)),
 	}
 }
 

@@ -26,7 +26,7 @@ import (
 	"path"
 	"runtime"
 
-	"s3testcase/internal/util"
+	usys "s3testcase/internal/utils/sys"
 )
 
 type Config struct {
@@ -43,7 +43,7 @@ func LoadConfig() Config {
 		UploadWorkersCount:   runtime.NumCPU() + 2,
 		DownloadWorkersCount: runtime.NumCPU() + 2,
 		FilePartsCount:       6,
-		UploadDir:            util.GetEnv("UPLOAD_DIR", path.Join(os.TempDir(), "fp-upload")),
-		DownloadDir:          util.GetEnv("DOWNLOAD_DIR", path.Join(os.TempDir(), "fp-download")),
+		UploadDir:            usys.GetEnv("UPLOAD_DIR", path.Join(os.TempDir(), "fp-upload")),
+		DownloadDir:          usys.GetEnv("DOWNLOAD_DIR", path.Join(os.TempDir(), "fp-download")),
 	}
 }
