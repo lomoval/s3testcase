@@ -24,8 +24,9 @@ package db
 import (
 	"fmt"
 	"net/url"
-	"s3testcase/internal/util"
 	"strconv"
+
+	"s3testcase/internal/util"
 )
 
 type Config struct {

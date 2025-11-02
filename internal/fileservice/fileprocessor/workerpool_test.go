@@ -43,10 +43,10 @@ func TestMain(m *testing.M) {
 }
 
 func createFileInDir(dir, filename, content string) error {
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644)
+	return os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644)
 }
 
 func TestWorkerPoolUpload(t *testing.T) {
@@ -57,7 +57,7 @@ func TestWorkerPoolUpload(t *testing.T) {
 	wp.Run()
 	defer wp.Shutdown(t.Context())
 
-	var receivedRequests int32 = 0
+	var receivedRequests int32
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "PUT", r.Method)
 		body, err := io.ReadAll(r.Body)
@@ -122,7 +122,7 @@ func TestFileProcessorNotStored(t *testing.T) {
 	wp.Run()
 	defer wp.Shutdown(t.Context())
 
-	var receivedRequests int32 = 0
+	var receivedRequests int32
 	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "PUT", r.Method)
 		body, err := io.ReadAll(r.Body)
@@ -139,6 +139,7 @@ func TestFileProcessorNotStored(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "67890", string(body))
 		atomic.AddInt32(&receivedRequests, 1)
+		w.WriteHeader(http.StatusOK)
 	}))
 	defer server2.Close()
 

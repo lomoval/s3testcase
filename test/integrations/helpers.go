@@ -49,7 +49,7 @@ func NewHashingGeneratorReader(size int64) *HashingGeneratorReader {
 	return &HashingGeneratorReader{
 		remaining: size,
 		hasher:    sha256.New(),
-		randSrc:   rand.New(rand.NewSource(42)),
+		randSrc:   rand.New(rand.NewSource(42)), //nolint:gosec
 	}
 }
 
@@ -81,8 +81,6 @@ func (r *HashingGeneratorReader) Sum() string {
 }
 
 func HashHTTPResponseBody(resp *http.Response) (string, error) {
-	defer resp.Body.Close()
-
 	hasher := sha256.New()
 	_, err := io.Copy(hasher, resp.Body)
 	if err != nil {

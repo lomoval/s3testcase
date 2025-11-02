@@ -136,7 +136,7 @@ func TestIntegrationUploadDownload(t *testing.T) {
 	require.True(t, startTime.Before(*f.ProcessedAt))
 
 	var downloadFile *file
-	sc, downloadFile, err = downloadFromServer(downloadURL)
+	sc, downloadFile, err = downloadFromServer(t.Context(), downloadURL)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, sc)
 
@@ -426,13 +426,19 @@ func uploadToServer(
 	return resp.StatusCode, nil
 }
 
-func downloadFromServer(url string) (int, *file, error) {
-	resp, err := http.Get(url)
+func downloadFromServer(ctx context.Context, url string) (int, *file, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return -1, nil, err
 	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return -1, nil, err
+	}
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
 		return resp.StatusCode, nil, nil
 	}
 
@@ -441,5 +447,5 @@ func downloadFromServer(url string) (int, *file, error) {
 	file.Size = resp.ContentLength
 	file.ContentType = resp.Header.Get("Content-Type")
 	file.Hash, err = HashHTTPResponseBody(resp)
-	return resp.StatusCode, &file, nil
+	return resp.StatusCode, &file, err
 }

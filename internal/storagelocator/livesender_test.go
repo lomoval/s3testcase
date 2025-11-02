@@ -24,8 +24,6 @@ package storagelocator_test
 import (
 	"context"
 	"encoding/json"
-	"github.com/google/uuid"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -33,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"s3testcase/internal/storagelocator"
@@ -69,7 +68,6 @@ func TestLiveSender(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		log.Printf("Received live: %+v\n", req)
 		w.WriteHeader(http.StatusOK)
 		require.Equal(t, cfg.AdvertisedAddr, req.AdvertisedAddr)
 		require.Equal(t, cfg.ServiceUUID, req.ServiceID)

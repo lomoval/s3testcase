@@ -24,13 +24,13 @@ package storageservice
 import (
 	"context"
 	"encoding/json"
-	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
 	"os"
 	"path"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
 	"s3testcase/internal/storage"
 	"s3testcase/internal/storagelocator"

@@ -124,53 +124,59 @@ func (s *Service) Run() chan error {
 
 func (s *Service) Shutdown(ctx context.Context) error {
 	close(s.done)
-	var err error
+	var allErrors error
 	if s.running {
-		if err = s.srv.Shutdown(ctx); err != nil {
+		if err := s.srv.Shutdown(ctx); err != nil {
+			allErrors = err
 			log.Error().Err(err).Msg("failed to shutdown http server")
 		}
 	}
 
 	if s.locator != nil {
-		if err = s.locator.Shutdown(ctx); err != nil {
+		if err := s.locator.Shutdown(ctx); err != nil {
+			errors.Join(allErrors, err)
 			log.Err(err).Msg("failed to shutdown locator")
 		}
 	}
 
 	if s.cleaner != nil {
-		if err = s.cleaner.Shutdown(ctx); err != nil {
+		if err := s.cleaner.Shutdown(ctx); err != nil {
+			errors.Join(allErrors, err)
 			log.Err(err).Msg("failed to shutdown cleaner")
 		}
 	}
 
 	if s.processor != nil {
-		if err = s.processor.Shutdown(ctx); err != nil {
+		if err := s.processor.Shutdown(ctx); err != nil {
+			errors.Join(allErrors, err)
 			log.Err(err).Msg("failed to shutdown processor")
 		}
 	}
 
 	if s.db != nil {
-		var dbErr error
+		var err error
 		done := make(chan struct{})
 		go func() {
-			if dbErr = s.db.Close(); dbErr != nil {
-				log.Error().Err(dbErr).Msg("db close error")
+			if err = s.db.Close(); err != nil {
+				log.Error().Err(err).Msg("db close error")
 			}
 			close(done)
 		}()
 		select {
 		case <-ctx.Done():
 			log.Err(ctx.Err()).Msg("timeout reached before db closed")
-			if err == nil {
-				err = ctx.Err()
-			}
+			return ctx.Err()
 		case <-done:
 			if err == nil {
-				err = dbErr
+				errors.Join(allErrors, err)
 			}
 		}
 	}
 
+	if allErrors != nil {
+		log.Info().Msg("shutdown failed")
+		return allErrors
+	}
 	log.Info().Msg("shutdown done")
 	return nil
 }

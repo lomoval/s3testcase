@@ -32,7 +32,7 @@ func main() {
 	uploadCmd := &cobra.Command{
 		Use:   "upload",
 		Short: "Upload a file",
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			if file == "" {
 				log.Fatal("upload requires --file/-f flag")
 			}
@@ -48,7 +48,7 @@ func main() {
 	downloadCmd := &cobra.Command{
 		Use:   "download",
 		Short: "Download a file",
-		Run: func(cmd *cobra.Command, args []string) {
+		Run: func(_ *cobra.Command, _ []string) {
 			if out == "" {
 				log.Fatal("download requires --out/-o flag")
 			}

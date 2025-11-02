@@ -55,7 +55,7 @@ func TestDirSize(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	actualSize, err := GetDirSize(ctx, path.Join(c.StorageDir), runtime.NumCPU())
+	actualSize, err := getDirSize(ctx, path.Join(c.StorageDir), runtime.NumCPU())
 	require.NoError(t, err)
 	require.Equal(t, expectedSize, actualSize)
 }

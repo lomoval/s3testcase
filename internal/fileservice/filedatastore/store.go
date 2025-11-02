@@ -42,6 +42,7 @@ type File struct {
 	Locations   []FileLocation
 }
 
+//nolint:tagliatelle
 type FileLocation struct {
 	ID           int64      `json:"id"`
 	FileUUID     uuid.UUID  `json:"file_uuid"`
@@ -381,7 +382,7 @@ func (s *Store) DeleteCleanItem(ctx context.Context, fileUUID uuid.UUID) error {
 }
 
 func (s *Store) DeleteFileWithCleanItem(ctx context.Context, fileUUID uuid.UUID) (err error) {
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}

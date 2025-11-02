@@ -23,7 +23,6 @@ package fileprocessor
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -391,7 +390,6 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 
 	buf := make([]byte, 32*1024)
 	var written int64
-	h := sha256.New()
 
 	for {
 		n, err := file.Reader.Read(buf)
@@ -400,7 +398,6 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 			if werr != nil {
 				return werr
 			}
-			h.Write(buf[:n])
 			written += int64(n)
 		}
 
@@ -486,8 +483,7 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 		return fmt.Errorf("failed processing of file '%s'-'%s'", file.Name, file.UUID.String())
 	}
 
-	finalHash := fmt.Sprintf("%x", h.Sum(nil))
-	log.Info().Msgf("file '%s' final hash: %s", file.Name, finalHash)
+	log.Info().Msgf("file %s-%s processed", file.UUID.String(), file.Name)
 	return nil
 }
 

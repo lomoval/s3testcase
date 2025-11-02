@@ -132,7 +132,7 @@ func (s *LiveSender) sendWithBackoff() {
 		}
 
 		delay := baseDelay * (1 << i)
-		jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+		jitter := time.Duration(rand.Int63n(int64(delay / 2))) //nolint:gosec
 		sleepTime := delay + jitter
 
 		log.Debug().Msgf("live request failed: %v — retrying in %s", err, sleepTime)

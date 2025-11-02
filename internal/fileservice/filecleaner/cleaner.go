@@ -26,13 +26,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"path/filepath"
 	repository "s3testcase/internal/fileservice/filedatastore"
 	"s3testcase/internal/storagelocator"
 )

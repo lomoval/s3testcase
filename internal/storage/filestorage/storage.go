@@ -98,7 +98,7 @@ func (s *Storage) Run() error {
 		return err
 	}
 
-	s.size, err = GetDirSize(context.Background(), s.dataDir, runtime.NumCPU())
+	s.size, err = getDirSize(context.Background(), s.dataDir, runtime.NumCPU())
 
 	s.stopCh = make(chan struct{})
 	if s.cleanupInterval > 0 {
@@ -263,7 +263,7 @@ func (s *Storage) cleanupTempFiles(maxAge time.Duration) error {
 	})
 }
 
-func GetDirSize(ctx context.Context, root string, workers int) (int64, error) {
+func getDirSize(ctx context.Context, root string, workers int) (int64, error) {
 	var total int64
 	paths := make(chan string, 256)
 	var wg sync.WaitGroup
