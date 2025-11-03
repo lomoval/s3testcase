@@ -155,6 +155,15 @@ type processingFile struct {
 	Parts []filePart
 }
 
+type filePartInterval struct {
+	StartIndex int64
+	EndIndex   int64
+}
+
+func (p filePartInterval) Size() int64 {
+	return p.EndIndex - p.StartIndex
+}
+
 type filePart struct {
 	ProcessedTime time.Time
 	FilePath      string
@@ -162,13 +171,11 @@ type filePart struct {
 }
 
 type fileUploadPartData struct {
+	filePartInterval
 	// Number of file part (1..N).
 	FileUUID   uuid.UUID
 	Number     int
 	FilePath   string
-	StartIndex int64
-	EndIndex   int64
-	Size       int64
 	LocationID int64
 	ResultCh   chan FileTaskResult
 	Ctx        context.Context

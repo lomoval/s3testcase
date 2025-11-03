@@ -293,17 +293,19 @@ func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFi
 	defer tmpFile.Close()
 
 	buf := make([]byte, 32*1024)
-	partCount, partSize := partsDivideParams(file.Size, fp.filePartsCount)
+	partsIntervals := partsFileIntervals(file.Size, fp.filePartsCount)
+	partCount := len(partsIntervals)
 	log.Debug().Msgf(
-		"file %s-%s - size %d, : %d, part size: %d",
+		"file %s-%s - size %d, type %s, parts count %d, parts intervals %v",
 		file.UUID.String(),
 		file.Name,
 		file.Size,
+		file.Type,
 		partCount,
-		partSize,
+		partsIntervals,
 	)
 	var written int64
-	var partIndex int64
+	var partIndex int
 
 	storagesIter := fp.storagesIterator()
 
@@ -320,30 +322,24 @@ func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFi
 			}
 			written += int64(n)
 
-			for partIndex < partCount && written >= (partIndex+1)*partSize {
-				partNumber := int(partIndex) + 1
-				start := partIndex * partSize
-				end := start + partSize
-				if partIndex == partCount-1 {
-					end = file.Size
-				}
+			for partIndex < partCount && written >= partsIntervals[partIndex].EndIndex {
+				partNumber := partIndex + 1
 
 				s := storagesIter.Next()
-				id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, partNumber, end-start)
+				id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, partNumber, partsIntervals[partIndex].Size())
 				if err != nil {
 					return err
 				}
 
 				part := fileUploadPartData{
-					FileUUID:   file.UUID,
-					Number:     partNumber,
-					FilePath:   filePath,
-					StartIndex: start,
-					EndIndex:   end,
-					Storage:    s,
-					LocationID: id,
-					ResultCh:   resCh,
-					Ctx:        taskDoneCtx,
+					FileUUID:         file.UUID,
+					Number:           partNumber,
+					FilePath:         filePath,
+					filePartInterval: partsIntervals[partIndex],
+					Storage:          s,
+					LocationID:       id,
+					ResultCh:         resCh,
+					Ctx:              taskDoneCtx,
 				}
 				parts[partNumber] = &part
 				fp.workerPool.AddUploadTask(part.ToWorkerTask())
@@ -412,15 +408,16 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 		return nil
 	}
 
-	partCount, partSize := partsDivideParams(file.Size, fp.filePartsCount)
+	partsIntervals := partsFileIntervals(file.Size, fp.filePartsCount)
+	partCount := len(partsIntervals)
 	log.Debug().Msgf(
-		"file %s-%s - size %d, type %s, parts count: %d, part size: %d",
+		"file %s-%s - size %d, type %s, parts count %d, parts intervals %v",
 		file.UUID.String(),
 		file.Name,
 		file.Size,
 		file.Type,
 		partCount,
-		partSize,
+		partsIntervals,
 	)
 
 	storageIter := fp.storagesIterator()
@@ -428,30 +425,23 @@ func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processin
 	taskDoneCtx, taskCancel := context.WithCancel(ctx)
 	defer taskCancel()
 	resCh := make(chan FileTaskResult, partCount)
-	for i := int64(0); i < partCount; i++ {
-		start := i * partSize
-		end := start + partSize
-		if i == partCount-1 {
-			end = written
-		}
+	for i := 0; i < partCount; i++ {
 		s := storageIter.Next()
-		id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, int(i)+1, end-start)
+		id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, i+1, partsIntervals[i].Size())
 		if err != nil {
 			return err
 		}
 		t := fileUploadPartData{
-			FileUUID:   file.UUID,
-			FilePath:   filePath,
-			StartIndex: start,
-			EndIndex:   end,
-			Size:       end - start,
-			Number:     int(i) + 1,
-			LocationID: id,
-			Storage:    s,
-			ResultCh:   resCh,
-			Ctx:        taskDoneCtx,
+			FileUUID:         file.UUID,
+			FilePath:         filePath,
+			filePartInterval: partsIntervals[i],
+			Number:           i + 1,
+			LocationID:       id,
+			Storage:          s,
+			ResultCh:         resCh,
+			Ctx:              taskDoneCtx,
 		}
-		parts[int(i+1)] = &t
+		parts[i+1] = &t
 		fp.workerPool.AddUploadTask(t.ToWorkerTask())
 	}
 
@@ -509,7 +499,7 @@ func (fp *FileProcessor) waitProcessingParts(
 				file.Name,
 				res.Number,
 				part.Storage.UUID.String())
-			id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, i+1, part.Size)
+			id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, i+1, part.Size())
 			if err != nil {
 				return err
 			}
@@ -531,12 +521,37 @@ func (fp *FileProcessor) waitProcessingParts(
 	return nil
 }
 
-func partsDivideParams(size int64, partsCount int) (int64, int64) {
-	partCount := int64(partsCount)
-	partSize := size / partCount
-	if partSize == 0 {
-		partSize = 1
-		partCount = size
+// partsFileIntervals splits the range [0, size) into approximately equal parts.
+// The first parts are longer, the last part is less than or equal to the previous ones.
+// If size <= partsCount, it returns 'size' parts of length 1 each.
+func partsFileIntervals(size int64, partsCount int) []filePartInterval {
+	if size <= 0 || partsCount <= 0 {
+		return nil
 	}
-	return partCount, partSize
+
+	// If size <= partsCount, return 'size' parts of length 1
+	if size <= int64(partsCount) {
+		parts := make([]filePartInterval, size)
+		for i := int64(0); i < size; i++ {
+			parts[i] = filePartInterval{StartIndex: i, EndIndex: i + 1}
+		}
+		return parts
+	}
+
+	parts := make([]filePartInterval, 0, partsCount)
+	baseSize := size / int64(partsCount)
+	remainder := size % int64(partsCount)
+
+	var start int64
+	for i := 0; i < partsCount; i++ {
+		partLen := baseSize
+		if remainder > 0 {
+			partLen++
+			remainder--
+		}
+		parts = append(parts, filePartInterval{StartIndex: start, EndIndex: start + partLen})
+		start += partLen
+	}
+
+	return parts
 }
