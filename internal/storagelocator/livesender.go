@@ -33,7 +33,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	"s3testcase/internal/utils/sys"
+	usys "s3testcase/internal/utils/sys"
 )
 
 const sendInterval = 10 * time.Second
@@ -49,22 +49,10 @@ type LiveSenderConfig struct {
 	SendInterval   time.Duration
 }
 
-func LoadLiveSenderConfig() LiveSenderConfig {
-	return LiveSenderConfig{
-		AdvertisedAddr: usys.GetEnv("ADVERTISED_ADDR", "127.0.0.0.1.:8201"),
-		ServiceUUID:    uuid.MustParse(usys.GetEnv("SERVICE_UUID", "")),
-		LocatorURL:     usys.GetEnv("LOCATOR_URL", "http://127.0.0.0.1:8300"),
-		SendInterval:   sendInterval,
-	}
-}
-
-type LiveRequest struct {
-	ServiceID        uuid.UUID `json:"serviceId"`
-	AdvertisedAddr   string    `json:"advertisedAddr"`
-	Timestamp        time.Time `json:"timestamp"`
-	StorageSizeBytes int64     `json:"storageSizeBytes"`
-}
-
+// LiveSender periodically sends live (heartbeat) messages to the locator.
+//
+// It is used to notify the locator service that this instance is active
+// and operational.
 type LiveSender struct {
 	advertisedAddr string
 	serviceID      uuid.UUID
@@ -75,6 +63,22 @@ type LiveSender struct {
 	stopChan chan struct{}
 	runDone  chan struct{}
 	client   *http.Client
+}
+
+type LiveRequest struct {
+	ServiceID        uuid.UUID `json:"serviceId"`
+	AdvertisedAddr   string    `json:"advertisedAddr"`
+	Timestamp        time.Time `json:"timestamp"`
+	StorageSizeBytes int64     `json:"storageSizeBytes"`
+}
+
+func LoadLiveSenderConfig() LiveSenderConfig {
+	return LiveSenderConfig{
+		AdvertisedAddr: usys.GetEnv("ADVERTISED_ADDR", "127.0.0.0.1.:8201"),
+		ServiceUUID:    uuid.MustParse(usys.GetEnv("SERVICE_UUID", "")),
+		LocatorURL:     usys.GetEnv("LOCATOR_URL", "http://127.0.0.0.1:8300"),
+		SendInterval:   sendInterval,
+	}
 }
 
 func NewLiveSender(cfg LiveSenderConfig, ss StorageSizer) *LiveSender {

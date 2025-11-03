@@ -37,6 +37,23 @@ import (
 	"golang.org/x/exp/mmap"
 )
 
+// UploadWorkerPool manages worker pools responsible for uploading
+// and retrieving file chunks.
+//
+// It coordinates concurrent workers that handle file part uploads
+// to services and parallel downloads during file retrieval.
+type UploadWorkerPool struct {
+	uploadCount   int
+	downloadCount int
+	uploadWG      sync.WaitGroup
+	downloadWG    sync.WaitGroup
+	uploadTasks   chan FileUploadTask
+	downloadTasks chan FileDownloadTask
+	ctx           context.Context
+	cancel        context.CancelFunc
+	errChan       chan error
+}
+
 type FileUploadTask struct {
 	// Number of file part (1..N).
 	Number     int
@@ -65,18 +82,6 @@ type FileTaskResult struct {
 	Number        int
 	ProcessedTime time.Time
 	Err           error
-}
-
-type UploadWorkerPool struct {
-	uploadCount   int
-	downloadCount int
-	uploadWG      sync.WaitGroup
-	downloadWG    sync.WaitGroup
-	uploadTasks   chan FileUploadTask
-	downloadTasks chan FileDownloadTask
-	ctx           context.Context
-	cancel        context.CancelFunc
-	errChan       chan error
 }
 
 func NewUploadWorkerPool(uploadCount int, downloadCount int) *UploadWorkerPool {
@@ -221,7 +226,7 @@ func upload(ctx context.Context, url string, index int, data []byte) error {
 		return fmt.Errorf("HTTP error: %s", string(body))
 	}
 
-	log.Debug().Msgf("part %d sent successfully, %d bytes\n", index, len(data))
+	log.Debug().Msgf("part %d sent successfully, %d bytes", index, len(data))
 	return nil
 }
 

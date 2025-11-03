@@ -101,6 +101,14 @@ func (fp *FileProcessor) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// Get retrieves a file from the storage.
+// Download flow:
+//  1. File metadata and chunk locations are read from the File Datastore.
+//  2. Worker tasks are created to fetch file chunks from the Storage Services.
+//  3. The system waits for all workers to finish and assembles the file.
+//  4. For large files, streaming is supported:
+//     The response can begin sending as soon as the first chunk is received,
+//     while the remaining chunks continue to load and stream sequentially.
 func (fp *FileProcessor) Get(ctx context.Context, fileName string) (*File, error) {
 	file, err := fp.store.GetLastFileWithLocationsByName(ctx, fileName)
 	if err != nil {
@@ -253,6 +261,30 @@ func (fp *FileProcessor) GetAsync(
 	return f, nil
 }
 
+// Save saves a file to the storages.
+//
+//	Each uploaded file is first registered in the File Datastore (the outbox table)
+//	before any processing begins. This ensures that if an error occurs during handling,
+//	the Cleaner component can roll back and remove any partial data or metadata.
+//
+// Upload flow:
+//  1. When upload starts, a record is created in the File Datastore outbox table.
+//     If an error occurs during processing, the Cleaner will delete the file data
+//     from storage and remove all related database records.
+//  2. A file record is created in the File Datastore with metadata.
+//     At this stage, the file is not processed (no processed timestamp) and can not be downloaded.
+//  3. If the file size is known:
+//     - The file is written to disk.
+//     - As soon as the size of the local file exceeds a single chunk size,
+//     worker tasks are created to upload those chunks to the Storage Service.
+//     - Waits for all workers to complete
+//     and validates that all chunks were successfully stored.
+//  3. If some chunks fail an error is returned.
+//  4. If all chunks are successfully processed, a processing timestamp is set,
+//     and available for download.
+//  5. If the file size is unknown in advance:
+//     - The entire file is written to disk first.
+//     - Then worker tasks are launched the same way as with known-size files.
 func (fp *FileProcessor) Save(ctx context.Context, fd FileData) error {
 	file := &processingFile{
 		FileData: fd,

@@ -38,22 +38,12 @@ import (
 
 var ErrStorageNotFound = fmt.Errorf("storage not found")
 
-type StorageInfo struct {
-	UUID uuid.UUID
-	Addr string
-	Size int64
-}
-
 type LocatorConfig struct {
 	ListenAddr string `yaml:"listenAddr"`
 }
 
-func LoadLocatorConfig() LocatorConfig {
-	return LocatorConfig{
-		ListenAddr: usys.GetEnv("STORAGE_LOCATOR_LISTEN_ADDR", ":8090"),
-	}
-}
-
+// Locator receives live (heartbeat) messages from LiveSender instances
+// and maintains information about available services.
 type Locator struct {
 	server     *http.Server
 	chDone     chan struct{}
@@ -62,6 +52,18 @@ type Locator struct {
 	listenAddr string
 
 	errCh chan error
+}
+
+type StorageInfo struct {
+	UUID uuid.UUID
+	Addr string
+	Size int64
+}
+
+func LoadLocatorConfig() LocatorConfig {
+	return LocatorConfig{
+		ListenAddr: usys.GetEnv("STORAGE_LOCATOR_LISTEN_ADDR", ":8090"),
+	}
 }
 
 func NewLocator(cfg LocatorConfig) (*Locator, error) {

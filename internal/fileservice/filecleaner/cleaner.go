@@ -38,6 +38,18 @@ import (
 	"s3testcase/internal/storagelocator"
 )
 
+// Cleaner is a module responsible for automatic file and metadata cleanup
+// based on the outbox pattern.
+// It removes files that are marked for deletion by:
+//   - deleting local upload files,
+//   - removing all chunks from Storage Services,
+//   - and cleaning up file metadata from the datastore.
+//
+// If an error occurs during cleanup, the operation will be retried
+// in the next cleanup cycle.
+//
+// The Cleaner also removes obsolete files — older versions that have
+// been replaced by newer ones with the same name.
 type Cleaner struct {
 	UploadDir   string
 	DownloadDir string
