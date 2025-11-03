@@ -26,13 +26,19 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/transform"
 
 	"s3testcase/internal/fileservice/db"
 	"s3testcase/internal/fileservice/filecleaner"
@@ -44,6 +50,7 @@ import (
 const (
 	fileNameHeader = "X-File-Name"
 	maxBodySize    = 10 << 30 // 10 GB
+	maxFileNameLen = 512
 )
 
 type Service struct {
@@ -96,7 +103,7 @@ func New(cfg Config, l *storagelocator.Locator) (*Service, error) {
 		done:      make(chan struct{}),
 	}
 	r.Post("/upload", srv.uploadFileHandler)
-	r.Get("/files/{name}", srv.downloadFileHandler)
+	r.Get("/files/*", srv.downloadFileHandler)
 
 	return srv, nil
 }
@@ -184,7 +191,18 @@ func (s *Service) Shutdown(ctx context.Context) error {
 func (s *Service) uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 	fileName := r.Header.Get(fileNameHeader)
 	if fileName == "" {
-		http.Error(w, "Missing X-File-Name header", http.StatusBadRequest)
+		http.Error(w, "Missing X-File-Name header or filename is empty", http.StatusBadRequest)
+		return
+	}
+
+	fileName, err := normalizeName(fileName)
+	if err != nil {
+		http.Error(w, "Filename is not URL safety", http.StatusBadRequest)
+		return
+	}
+
+	if utf8.RuneCountInString(fileName) > maxFileNameLen {
+		http.Error(w, "Filename too long", http.StatusBadRequest)
 		return
 	}
 
@@ -200,7 +218,7 @@ func (s *Service) uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	defer r.Body.Close()
-	err := s.processor.Save(r.Context(), fileprocessor.FileData{
+	err = s.processor.Save(r.Context(), fileprocessor.FileData{
 		Name:   fileName,
 		Size:   r.ContentLength,
 		Reader: r.Body,
@@ -215,9 +233,10 @@ func (s *Service) uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) downloadFileHandler(w http.ResponseWriter, r *http.Request) {
-	fileName := chi.URLParam(r, "name")
-	if fileName == "" {
-		http.Error(w, "missing file name", http.StatusBadRequest)
+	encoded := chi.URLParam(r, "*")
+	fileName, err := url.QueryUnescape(encoded)
+	if err != nil {
+		http.Error(w, "bad encoding of filename", http.StatusBadRequest)
 		return
 	}
 
@@ -277,4 +296,26 @@ func (s *Service) waitStorages() {
 			log.Warn().Msgf("waiting for storages (registered %d)", c)
 		}
 	}
+}
+
+// checkFilename checks the filename for URL-safety.
+func normalizeName(name string) (string, error) {
+	if !utf8.ValidString(name) {
+		reader := transform.NewReader(strings.NewReader(name), charmap.Windows1251.NewDecoder())
+		bytesName, err := io.ReadAll(reader)
+		if err != nil {
+			return "", err
+		}
+		if !utf8.Valid(bytesName) {
+			return "", nil
+		}
+		name = string(bytesName)
+	}
+
+	escaped := url.PathEscape(name)
+	unescaped, err := url.PathUnescape(escaped)
+	if err != nil || unescaped != name {
+		return "", errors.New("invalid filename")
+	}
+	return name, nil
 }

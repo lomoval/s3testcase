@@ -125,22 +125,21 @@ go run cmd/client/main.go download -n <uploaded-filename> -o <path-to-save>
 
 Example:
 ```
-go run ./cmd/client/main.go upload -f D:\Temp\gofunc.mp4
-Uploading file: gofunc.mp4
-Size: 801,339,766 bytes
+go run ./cmd/client/main.go upload -f "D:\Temp\[1] - go func.mp4"
+Uploading file to: http://127.0.0.1:8100/upload
+Name: [1] - go func.mp4
+Size: 801339766 bytes
 Content-Type: video/mp4
 SHA256: 64328d5b0d2e4461658c49ddd611efeca51b53257599b5239d92280fd9b1415a
-Sending request to http://127.0.0.1:8100/upload
-File gofunc.mp4 uploaded successfully (elapsed: 1.79s)
+File '[1] - go func.mp4' uploaded successfully (elapsed: 1.8315157s)
 
-go run ./cmd/client/main.go download -n gofunc.mp4 -o D:\Temp\gofunc_out.mp4
-Downloading file from http://127.0.0.1:8100/files/gofunc.mp4
-Response received after 624ms
-Downloaded file: gofunc.mp4
-Size: 801,339,766 bytes
+go run ./cmd/client/main.go download -n "[1] - go func.mp4" -o "D:\Temp\gofunc_out.mp4"
+Downloading file from http://127.0.0.1:8100/files/%5B1%5D+-+go+func.mp4
+Name: [1] - go func.mp4
+Size: 801339766 bytes
 Content-Type: video/mp4
 SHA256: 64328d5b0d2e4461658c49ddd611efeca51b53257599b5239d92280fd9b1415a
-File gofunc.mp4 downloaded successfully (elapsed: 3.98s)
+File '[1] - go func.mp4' download successfully (elapsed: 3.7440376s)
 ```
 
 To cleanup stop all services and remove images, volumes, and networks:

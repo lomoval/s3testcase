@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -73,6 +74,7 @@ func main() {
 }
 
 func uploadFile(addr, filePath string) error {
+	uploadURL := fmt.Sprintf("http://%s/upload", addr)
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return fmt.Errorf("cannot get absolute path: %w", err)
@@ -103,7 +105,8 @@ func uploadFile(addr, filePath string) error {
 	}
 	hashSum := hasher.Sum(nil)
 
-	fmt.Printf("Uploading file: %s\n", filepath.Base(filePath))
+	fmt.Printf("Uploading file to: %s\n", uploadURL)
+	fmt.Printf("Name: %s\n", filepath.Base(filePath))
 	fmt.Printf("Size: %d bytes\n", stat.Size())
 	fmt.Printf("Content-Type: %s\n", contentType)
 	fmt.Printf("SHA256: %x\n", hashSum)
@@ -115,7 +118,7 @@ func uploadFile(addr, filePath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	startTime := time.Now()
-	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("http://%s/upload", addr), f)
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, f)
 	if err != nil {
 		return fmt.Errorf("cannot create request: %w", err)
 	}
@@ -123,7 +126,6 @@ func uploadFile(addr, filePath string) error {
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("X-File-Name", filepath.Base(filePath))
 
-	fmt.Printf("Sending request to %s\n", req.URL.String())
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -133,7 +135,7 @@ func uploadFile(addr, filePath string) error {
 
 	if resp.StatusCode == http.StatusOK {
 		fmt.Printf(
-			"File %s uploaded successfully (elapsed: %s)\n",
+			"File '%s' uploaded successfully (elapsed: %s)\n",
 			filepath.Base(filePath),
 			time.Since(startTime).String(),
 		)
@@ -145,13 +147,13 @@ func uploadFile(addr, filePath string) error {
 }
 
 func downloadFile(addr, fileName, outPath string) error {
-	url := fmt.Sprintf("http://%s/files/%s", addr, fileName)
-	fmt.Printf("Downloading file from %s\n", url)
+	fileURL := fmt.Sprintf("http://%s/files/%s", addr, url.QueryEscape(fileName))
+	fmt.Printf("Downloading file from %s\n", fileURL)
 	startTime := time.Now()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
 	if err != nil {
 		return err
 	}
@@ -161,9 +163,7 @@ func downloadFile(addr, fileName, outPath string) error {
 	}
 	defer resp.Body.Close()
 
-	fmt.Printf("Get response after %s\n", time.Since(startTime))
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("Server returning data")
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
 	}
@@ -186,11 +186,11 @@ func downloadFile(addr, fileName, outPath string) error {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	fmt.Printf("Downloaded file: %s\n", fileName)
+	fmt.Printf("Name: %s\n", fileName)
 	fmt.Printf("Size: %d bytes\n", size)
 	fmt.Printf("Content-Type: %s\n", contentType)
 	fmt.Printf("SHA256: %x\n", hasher.Sum(nil))
-	fmt.Printf("File %s download successfully (elapsed: %s)\n", fileName, time.Since(startTime).String())
+	fmt.Printf("File '%s' download successfully (elapsed: %s)\n", fileName, time.Since(startTime).String())
 
 	return nil
 }
