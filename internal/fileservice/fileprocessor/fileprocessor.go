@@ -41,12 +41,14 @@ import (
 const (
 	maxErrorsOnPart = 3
 	copyAsyncSize   = 1024 * 1024 * 10
+	cleanTimeout    = 5 * time.Minute
 )
 
 var (
-	ErrUploadFailed   = errors.New("upload failed")
-	ErrDownloadFailed = errors.New("download failed")
-	ErrFileNotFound   = errors.New("file not found")
+	ErrUploadFailed      = errors.New("upload failed")
+	ErrDownloadFailed    = errors.New("download failed")
+	ErrFileNotFound      = errors.New("file not found")
+	ErrIncorrectFileSize = errors.New("incorrect file size")
 )
 
 type roundIterator struct {
@@ -273,7 +275,7 @@ func (fp *FileProcessor) GetAsync(
 //     from storage and remove all related database records.
 //  2. A file record is created in the File Datastore with metadata.
 //     At this stage, the file is not processed (no processed timestamp) and can not be downloaded.
-//  3. If the file size is known:
+//  3. Processing of file:
 //     - The file is written to disk.
 //     - As soon as the size of the local file exceeds a single chunk size,
 //     worker tasks are created to upload those chunks to the Storage Service.
@@ -282,27 +284,31 @@ func (fp *FileProcessor) GetAsync(
 //  3. If some chunks fail an error is returned.
 //  4. If all chunks are successfully processed, a processing timestamp is set,
 //     and available for download.
-//  5. If the file size is unknown in advance:
-//     - The entire file is written to disk first.
-//     - Then worker tasks are launched the same way as with known-size files.
 func (fp *FileProcessor) Save(ctx context.Context, fd FileData) error {
+	if fd.Size < 0 {
+		return ErrIncorrectFileSize
+	}
+
 	file := &processingFile{
 		FileData: fd,
 		UUID:     uuid.New(),
 	}
-	if err := fp.store.InsertCleanItemData(ctx, file.UUID, time.Now().Add(30*time.Minute)); err != nil {
+
+	if err := fp.store.InsertCleanItemData(ctx, file.UUID, time.Now().Add(cleanTimeout)); err != nil {
 		log.Err(err).Msgf("failed to insert clean outbox data")
 		return err
 	}
+	defer func() {
+		if err := fp.store.SetCleanItemCleanAfterToNow(ctx, file.UUID); err != nil {
+			log.Err(err).Msgf("failed to set clean time for item")
+		}
+	}()
+
 	_, err := fp.store.InsertFileInfo(ctx, file.UUID, file.Name, file.Type, file.Size)
 	if err != nil {
 		return err
 	}
-
-	if file.Size > 0 {
-		return fp.processWithSize(ctx, file)
-	}
-	return fp.processWithoutSize(ctx, file)
+	return fp.processWithSize(ctx, file)
 }
 
 func (fp *FileProcessor) storagesIterator() roundIterator {
@@ -314,7 +320,7 @@ func (fp *FileProcessor) storagesIterator() roundIterator {
 }
 
 func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFile) error {
-	log.Debug().Msgf("processing file with size %s-%s %s %d", file.UUID, file.Name, file.Type, file.Size)
+	log.Debug().Msgf("processing file %s-%s %s %d", file.UUID, file.Name, file.Type, file.Size)
 
 	filePath := path.Join(fp.uploadDir, file.UUID.String())
 	tmpFile, err := os.Create(filePath)
@@ -387,97 +393,6 @@ func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFi
 	}
 
 	if err := fp.waitProcessingParts(ctx, file, parts, storagesIter); err != nil {
-		return err
-	}
-	log.Info().Msgf("file %s-%s processed", file.UUID.String(), file.Name)
-	return nil
-}
-
-func (fp *FileProcessor) processWithoutSize(ctx context.Context, file *processingFile) error {
-	log.Debug().Msgf("processing file without size %s-%s %s", file.UUID, file.Name, file.Type)
-
-	filePath := path.Join(fp.uploadDir, file.UUID.String())
-	tmpFile, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("cannot create temp file: %w", err)
-	}
-	defer os.Remove(filePath)
-	defer tmpFile.Close()
-
-	buf := make([]byte, 32*1024)
-	var written int64
-
-	for {
-		n, err := file.Reader.Read(buf)
-		if n > 0 {
-			_, werr := tmpFile.Write(buf[:n])
-			if werr != nil {
-				return werr
-			}
-			written += int64(n)
-		}
-
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-	}
-	file.Size = written
-
-	if err := fp.store.SetFileSize(ctx, file.UUID, file.Size); err != nil {
-		log.Err(err).Msgf("failed to set file size")
-		return err
-	}
-
-	if file.Size == 0 {
-		if err := fp.store.SetFileProcessedTime(ctx, file.UUID, time.Now().UTC()); err != nil {
-			log.Err(err).Msgf("failed to set file processed time for empty file")
-			return err
-		}
-		log.Debug().Msgf("file %s-%s is empty, no need to upload", file.UUID.String(), file.Name)
-		return nil
-	}
-
-	partsIntervals := partsFileIntervals(file.Size, fp.filePartsCount)
-	partCount := len(partsIntervals)
-	log.Debug().Msgf(
-		"file %s-%s - size %d, type %s, parts count %d, parts intervals %v",
-		file.UUID.String(),
-		file.Name,
-		file.Size,
-		file.Type,
-		partCount,
-		partsIntervals,
-	)
-
-	storageIter := fp.storagesIterator()
-	parts := make(map[int]*fileUploadPartData)
-	taskDoneCtx, taskCancel := context.WithCancel(ctx)
-	defer taskCancel()
-	resCh := make(chan FileTaskResult, partCount)
-	for i := 0; i < partCount; i++ {
-		s := storageIter.Next()
-		id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, i+1, partsIntervals[i].Size())
-		if err != nil {
-			return err
-		}
-		t := fileUploadPartData{
-			FileUUID:         file.UUID,
-			FilePath:         filePath,
-			filePartInterval: partsIntervals[i],
-			Number:           i + 1,
-			LocationID:       id,
-			Storage:          s,
-			ResultCh:         resCh,
-			Ctx:              taskDoneCtx,
-		}
-		parts[i+1] = &t
-		fp.workerPool.AddUploadTask(t.ToWorkerTask())
-	}
-
-	if err := fp.waitProcessingParts(ctx, file, parts, storageIter); err != nil {
 		return err
 	}
 	log.Info().Msgf("file %s-%s processed", file.UUID.String(), file.Name)

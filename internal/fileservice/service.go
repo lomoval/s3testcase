@@ -206,6 +206,11 @@ func (s *Service) uploadFileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.ContentLength < 0 {
+		http.Error(w, "Request content size is not set", http.StatusBadRequest)
+		return
+	}
+
 	if r.ContentLength > maxBodySize {
 		http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
 		return
