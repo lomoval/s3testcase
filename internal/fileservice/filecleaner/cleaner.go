@@ -25,8 +25,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -41,8 +39,7 @@ import (
 // Cleaner is a module responsible for automatic file and metadata cleanup
 // based on the outbox pattern.
 // It removes files that are marked for deletion by:
-//   - deleting local upload files,
-//   - removing all chunks from Storage Services,
+//   - removing all parts from Storage Services,
 //   - and cleaning up file metadata from the datastore.
 //
 // If an error occurs during cleanup, the operation will be retried
@@ -51,44 +48,27 @@ import (
 // The Cleaner also removes obsolete files — older versions that have
 // been replaced by newer ones with the same name.
 type Cleaner struct {
-	UploadDir   string
-	DownloadDir string
-	MaxAge      time.Duration
-	store       *repository.Store
-	locator     *storagelocator.Locator
-	ctx         context.Context
-	cancel      context.CancelFunc
-	workers     sync.WaitGroup
+	store   *repository.Store
+	locator *storagelocator.Locator
+	ctx     context.Context
+	cancel  context.CancelFunc
+	workers sync.WaitGroup
 }
 
 func NewCleaner(
-	cfg Config,
 	store *repository.Store,
 	locator *storagelocator.Locator,
 ) *Cleaner {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Cleaner{
-		UploadDir:   cfg.UploadDir,
-		DownloadDir: cfg.DownloadDir,
-		MaxAge:      cfg.FilesMaxAge,
-		store:       store,
-		locator:     locator,
-		ctx:         ctx,
-		cancel:      cancel,
+		store:   store,
+		locator: locator,
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
 func (c *Cleaner) Run() {
-	c.workers.Add(1)
-	go func() {
-		defer c.workers.Done()
-		select {
-		case <-c.ctx.Done():
-			return
-		case <-time.After(time.Minute):
-			c.cleanupDirs()
-		}
-	}()
 	c.workers.Add(1)
 	go func() {
 		defer c.workers.Done()
@@ -130,36 +110,6 @@ func (c *Cleaner) stopped() bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func (c *Cleaner) cleanupDirs() {
-	for _, dir := range []string{c.UploadDir, c.DownloadDir} {
-		if c.stopped() {
-			return
-		}
-		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-			if c.stopped() {
-				return nil
-			}
-			if err != nil {
-				if os.IsNotExist(err) {
-					return nil
-				}
-				log.Error().Err(err).Msgf("error on cleaning %s", dir)
-				return nil
-			}
-			if info.IsDir() {
-				return nil
-			}
-			if time.Since(info.ModTime()) > c.MaxAge {
-				log.Info().Msgf("deleting %s", path)
-				if err := os.Remove(path); err != nil {
-					log.Error().Err(err).Msgf("error on deleting %s", path)
-				}
-			}
-			return nil
-		})
 	}
 }
 

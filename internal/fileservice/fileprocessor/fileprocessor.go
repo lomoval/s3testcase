@@ -26,8 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path"
+	"net/http"
 	"sort"
 	"time"
 
@@ -40,7 +39,6 @@ import (
 
 const (
 	maxErrorsOnPart = 3
-	copyAsyncSize   = 1024 * 1024 * 10
 	cleanTimeout    = 5 * time.Minute
 )
 
@@ -66,8 +64,6 @@ func (r *roundIterator) Next() storagelocator.StorageInfo {
 }
 
 type FileProcessor struct {
-	uploadDir      string
-	downloadDir    string
 	workerPool     *UploadWorkerPool
 	filePartsCount int
 	store          *filedatastore.Store
@@ -81,8 +77,6 @@ func NewFileProcessor(
 ) *FileProcessor {
 	wp := NewUploadWorkerPool(cfg.UploadWorkersCount, cfg.DownloadWorkersCount)
 	return &FileProcessor{
-		uploadDir:      cfg.UploadDir,
-		downloadDir:    cfg.DownloadDir,
 		filePartsCount: cfg.FilePartsCount,
 		workerPool:     wp,
 		store:          store,
@@ -105,7 +99,7 @@ func (fp *FileProcessor) Shutdown(ctx context.Context) error {
 
 // Get retrieves a file from the storage.
 // Download flow:
-//  1. File metadata and chunk locations are read from the File Datastore.
+//  1. File metadata and parts locations are read from the File Datastore.
 //  2. Worker tasks are created to fetch file chunks from the Storage Services.
 //  3. The system waits for all workers to finish and assembles the file.
 //  4. For large files, streaming is supported:
@@ -133,134 +127,39 @@ func (fp *FileProcessor) Get(ctx context.Context, fileName string) (*File, error
 		return &f, nil
 	}
 
-	if f.Size > copyAsyncSize {
-		return fp.GetAsync(ctx, &f, file.Locations)
-	}
-
-	tasks := make(map[int]FileDownloadTask)
-	resCh := make(chan FileTaskResult, len(file.Locations))
-	done, cancel := context.WithCancel(ctx)
-	defer cancel()
-	for i, l := range file.Locations {
-		s, err := fp.locator.StorageByUUID(l.LocationUUID)
-		if err != nil {
-			log.Err(err).Msgf("storage with '%s' not found", s.UUID.String())
-			return nil, err
-		}
-
-		storageFileName := fmt.Sprintf("%s-%d", f.UUID.String(), l.PartNumber)
-		localFileName := fmt.Sprintf("%s-%d-%s", f.UUID.String(), l.PartNumber, uuid.New().String())
-
-		tasks[i] = FileDownloadTask{
-			FilePath:    path.Join(fp.downloadDir, localFileName),
-			Number:      l.PartNumber,
-			ResultCh:    resCh,
-			DownloadURL: fmt.Sprintf("http://%s/files/%s", s.Addr, storageFileName),
-			Ctx:         done,
-		}
-		fp.workerPool.AddDownloadTask(tasks[i])
-	}
-
-	for i := 0; i < len(file.Locations); {
-		select {
-		case res, ok := <-resCh:
-			if !ok {
-				log.Error().Msgf("failed to get result from channel - chanel closed")
-				return nil, errors.New("failed to get result from channel")
-			}
-			task := tasks[res.Number-1]
-			if res.Err == nil {
-				log.Debug().Msgf("part %d is ready - %s", res.Number, task.FilePath)
-				i++
-				f.setPart(res.Number-1, filePart{FilePath: task.FilePath})
-			} else {
-				task.ErrCount++
-				if task.ErrCount > 3 {
-					log.Err(ErrDownloadFailed).Msgf("too many errors with task %s-%s %d",
-						file.UUID.String(),
-						file.FileName,
-						res.Number,
-					)
-					return nil, fmt.Errorf(
-						"%s-%s %d: %w",
-						file.UUID.String(),
-						file.FileName,
-						res.Number,
-						ErrDownloadFailed,
-					)
-				}
-			}
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	return &f, nil
-}
-
-func (fp *FileProcessor) GetAsync(
-	ctx context.Context,
-	f *File,
-	locations []filedatastore.FileLocation,
-) (*File, error) {
-	log.Debug().Msgf("file %s-%s is large, use async copy", f.UUID.String(), f.Name)
-	f.useAsycCopy = true
+	pr, pw := io.Pipe()
+	f.Reader = pr
 	go func() {
-		defer close(f.readyPartCh)
-		tasks := make(map[int]FileDownloadTask)
-		resCh := make(chan FileTaskResult, len(locations))
-		done, cancel := context.WithCancel(ctx)
-		defer cancel()
-		for i, l := range locations {
+		defer pw.Close()
+		for i, l := range file.Locations {
+			select {
+			case <-ctx.Done():
+				if err := pw.CloseWithError(ctx.Err()); err != nil {
+					log.Err(err).Msgf("failed to close pipe writer")
+					return
+				}
+				return
+			default:
+			}
+
 			s, err := fp.locator.StorageByUUID(l.LocationUUID)
 			if err != nil {
-				log.Err(err).Msgf("storage with '%s' not found", s.UUID.String())
+				log.Err(err).Msgf("failed to get storage by uuid %s", l.LocationUUID)
 				return
 			}
 			storageFileName := fmt.Sprintf("%s-%d", f.UUID.String(), l.PartNumber)
-			localFileName := fmt.Sprintf("%s-%d-%s", f.UUID.String(), l.PartNumber, uuid.New().String())
 
-			tasks[i] = FileDownloadTask{
-				FilePath:    path.Join(fp.downloadDir, localFileName),
-				Number:      l.PartNumber,
-				ResultCh:    resCh,
-				DownloadURL: fmt.Sprintf("http://%s/files/%s", s.Addr, storageFileName),
-				Ctx:         done,
-			}
-			fp.workerPool.AddDownloadTask(tasks[i])
-		}
-
-		for i := 0; i < len(locations); {
-			select {
-			case res, ok := <-resCh:
-				if !ok {
-					log.Error().Msgf("failed to get result from channel - chanel closed")
-					f.readyPartCh <- -1
+			url := fmt.Sprintf("http://%s/files/%s", s.Addr, storageFileName)
+			if err := downloadFile(ctx, url, pw); err != nil {
+				if err := pw.CloseWithError(fmt.Errorf("failed download file %d: %w", i+1, err)); err != nil {
+					log.Err(err).Msgf("failed to close pipe writer")
 					return
 				}
-				task := tasks[res.Number-1]
-				if res.Err == nil {
-					log.Debug().Msgf("part %d is ready - %s", res.Number, task.FilePath)
-					i++
-					f.setPart(res.Number-1, filePart{FilePath: task.FilePath})
-					f.readyPartCh <- res.Number
-				} else {
-					log.Err(res.Err).Msgf(
-						"error with task %s-%s %d",
-						f.UUID.String(),
-						f.Name,
-						res.Number,
-					)
-					f.readyPartCh <- -1
-					return
-				}
-			case <-ctx.Done():
-				return
 			}
 		}
 	}()
 
-	return f, nil
+	return &f, nil
 }
 
 // Save saves a file to the storages.
@@ -308,29 +207,12 @@ func (fp *FileProcessor) Save(ctx context.Context, fd FileData) error {
 	if err != nil {
 		return err
 	}
-	return fp.processWithSize(ctx, file)
+	return fp.save(ctx, file)
 }
 
-func (fp *FileProcessor) storagesIterator() roundIterator {
-	storages := fp.locator.Storages()
-	sort.Slice(storages, func(i, j int) bool {
-		return storages[i].Size < storages[j].Size
-	})
-	return roundIterator{Storages: storages}
-}
-
-func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFile) error {
+func (fp *FileProcessor) save(ctx context.Context, file *processingFile) error {
 	log.Debug().Msgf("processing file %s-%s %s %d", file.UUID, file.Name, file.Type, file.Size)
 
-	filePath := path.Join(fp.uploadDir, file.UUID.String())
-	tmpFile, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("cannot create temp file: %w", err)
-	}
-	defer os.Remove(filePath)
-	defer tmpFile.Close()
-
-	buf := make([]byte, 32*1024)
 	partsIntervals := partsFileIntervals(file.Size, fp.filePartsCount)
 	partCount := len(partsIntervals)
 	log.Debug().Msgf(
@@ -342,130 +224,59 @@ func (fp *FileProcessor) processWithSize(ctx context.Context, file *processingFi
 		partCount,
 		partsIntervals,
 	)
-	var written int64
-	var partIndex int
-
 	storagesIter := fp.storagesIterator()
-
-	parts := make(map[int]*fileUploadPartData)
-	resCh := make(chan FileTaskResult, partCount)
-	taskDoneCtx, taskCancel := context.WithCancel(ctx)
-	defer taskCancel()
-	for {
-		n, err := file.Reader.Read(buf)
-		if n > 0 {
-			_, werr := tmpFile.Write(buf[:n])
-			if werr != nil {
-				return werr
-			}
-			written += int64(n)
-
-			for partIndex < partCount && written >= partsIntervals[partIndex].EndIndex {
-				partNumber := partIndex + 1
-
-				s := storagesIter.Next()
-				id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, partNumber, partsIntervals[partIndex].Size())
-				if err != nil {
-					return err
-				}
-
-				part := fileUploadPartData{
-					FileUUID:         file.UUID,
-					Number:           partNumber,
-					FilePath:         filePath,
-					filePartInterval: partsIntervals[partIndex],
-					Storage:          s,
-					LocationID:       id,
-					ResultCh:         resCh,
-					Ctx:              taskDoneCtx,
-				}
-				parts[partNumber] = &part
-				fp.workerPool.AddUploadTask(part.ToWorkerTask())
-				partIndex++
-			}
-		}
+	var lastTime time.Time
+	for i, pi := range partsIntervals {
+		partNumber := i + 1
+		s := storagesIter.Next()
+		id, err := fp.store.AddLocation(ctx, file.UUID, s.UUID, partNumber, pi.Size())
 		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
+			return err
+		}
+
+		log.Printf("sending part %d (%d bytes) to  %s - %s", i+1, pi.Size(), s.UUID, s.Addr)
+		limited := io.LimitReader(file.Reader, pi.Size())
+		req, err := http.NewRequestWithContext(
+			ctx,
+			"PUT",
+			fmt.Sprintf("http://%s/files/%s-%d", s.Addr, file.UUID.String(), partNumber),
+			limited,
+		)
+		if err != nil {
+			return err
+		}
+		req.ContentLength = pi.Size()
+		req.Header.Set("Content-Type", "application/octet-stream")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			log.Error().Msgf("failed to upload part %d: %s", partNumber, resp.Status)
+			return fmt.Errorf("failed to upload part %d: %s", partNumber, resp.Status)
+		}
+		lastTime = time.Now()
+		if err := fp.store.SetLocationProcessedTime(ctx, id, lastTime); err != nil {
 			return err
 		}
 	}
 
-	if err := fp.waitProcessingParts(ctx, file, parts, storagesIter); err != nil {
+	if err := fp.store.SetFileProcessedTime(ctx, file.UUID, lastTime); err != nil {
+		log.Err(err).Msgf("failed to set file processed time")
 		return err
 	}
-	log.Info().Msgf("file %s-%s processed", file.UUID.String(), file.Name)
+
+	log.Debug().Msgf("file %s-%s processed", file.UUID.String(), file.Name)
 	return nil
 }
 
-func (fp *FileProcessor) waitProcessingParts(
-	ctx context.Context,
-	file *processingFile,
-	parts map[int]*fileUploadPartData,
-	storagesIter roundIterator,
-) error {
-	// Processed time for file is max time of processed time of parts
-	var processedTime time.Time
-	for i := 0; i < len(parts); {
-		select {
-		case <-ctx.Done():
-		case <-parts[i+1].Ctx.Done():
-		case res := <-parts[i+1].ResultCh:
-			if res.Err == nil {
-				if processedTime.Before(res.ProcessedTime) {
-					processedTime = res.ProcessedTime
-				}
-				if err := fp.store.SetLocationProcessedTime(ctx, parts[i+1].LocationID, res.ProcessedTime); err != nil {
-					return err
-				}
-				i++
-				continue
-			}
-
-			part := parts[res.Number]
-			log.Err(res.Err).Msgf("part %s-%s %d failed", file.UUID.String(), file.Name, res.Number)
-			if err := fp.store.DeleteLocation(ctx, parts[i+1].LocationID); err != nil {
-				return err
-			}
-
-			part.ErrCount++
-			if part.ErrCount > maxErrorsOnPart {
-				log.Err(res.Err).Msgf(
-					"uploading failed - too many errors with tasks %s-%s %d",
-					file.UUID.String(),
-					file.Name,
-					res.Number,
-				)
-				return fmt.Errorf("%s-%s %d: %w", file.UUID.String(), file.Name, res.Number, ErrUploadFailed)
-			}
-
-			part.Storage = storagesIter.Next()
-			log.Debug().Msgf("trying to upload %s-%s %d to other storage %s",
-				file.UUID.String(),
-				file.Name,
-				res.Number,
-				part.Storage.UUID.String())
-			id, err := fp.store.AddLocation(ctx, file.UUID, part.Storage.UUID, i+1, part.Size())
-			if err != nil {
-				return err
-			}
-			part.LocationID = id
-			fp.workerPool.AddUploadTask(part.ToWorkerTask())
-		}
-	}
-
-	if !processedTime.IsZero() {
-		if err := fp.store.SetFileProcessedTime(ctx, file.UUID, processedTime); err != nil {
-			return err
-		}
-		if err := fp.store.SetCleanItemCleanAfterToNow(ctx, file.UUID); err != nil {
-			log.Err(err).Msgf("failed to set clean outbox clean time")
-		}
-	} else {
-		return fmt.Errorf("failed processing of file '%s'-'%s'", file.Name, file.UUID.String())
-	}
-	return nil
+func (fp *FileProcessor) storagesIterator() roundIterator {
+	storages := fp.locator.Storages()
+	sort.Slice(storages, func(i, j int) bool {
+		return storages[i].Size < storages[j].Size
+	})
+	return roundIterator{Storages: storages}
 }
 
 // partsFileIntervals splits the range [0, size) into approximately equal parts.
@@ -501,4 +312,26 @@ func partsFileIntervals(size int64, partsCount int) []filePartInterval {
 	}
 
 	return parts
+}
+
+func downloadFile(ctx context.Context, url string, pw *io.PipeWriter) error {
+	client := &http.Client{}
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status %d for part %s", resp.StatusCode, url)
+	}
+	if _, err := io.Copy(pw, resp.Body); err != nil {
+		return err
+	}
+	return nil
 }

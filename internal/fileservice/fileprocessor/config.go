@@ -22,19 +22,13 @@
 package fileprocessor
 
 import (
-	"os"
-	"path"
 	"runtime"
-
-	usys "s3testcase/internal/utils/sys"
 )
 
 type Config struct {
 	UploadWorkersCount   int
 	DownloadWorkersCount int
 	FilePartsCount       int
-	UploadDir            string
-	DownloadDir          string
 	// MinFileSizeToDivide int
 }
 
@@ -43,7 +37,5 @@ func LoadConfig() Config {
 		UploadWorkersCount:   runtime.NumCPU() + 2,
 		DownloadWorkersCount: runtime.NumCPU() + 2,
 		FilePartsCount:       6,
-		UploadDir:            usys.GetEnv("UPLOAD_DIR", path.Join(os.TempDir(), "fp-upload")),
-		DownloadDir:          usys.GetEnv("DOWNLOAD_DIR", path.Join(os.TempDir(), "fp-download")),
 	}
 }

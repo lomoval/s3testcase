@@ -36,7 +36,7 @@ import (
 	usys "s3testcase/internal/utils/sys"
 )
 
-const sendInterval = 10 * time.Second
+const sendInterval = 1 * time.Second
 
 type StorageSizer interface {
 	Size() int64
@@ -140,7 +140,7 @@ func (s *LiveSender) sendWithBackoff() {
 		jitter := time.Duration(rand.Int63n(int64(delay / 2))) //nolint:gosec
 		sleepTime := delay + jitter
 
-		log.Debug().Msgf("live request failed: %v — retrying in %s", err, sleepTime)
+		log.Err(err).Msgf("live request failed, retrying in %s", sleepTime)
 
 		select {
 		case <-time.After(sleepTime):

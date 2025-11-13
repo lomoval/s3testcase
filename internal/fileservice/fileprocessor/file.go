@@ -23,15 +23,10 @@ package fileprocessor
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
-
 	"s3testcase/internal/storagelocator"
 )
 
@@ -51,103 +46,17 @@ type File struct {
 	Parts  []filePart
 
 	readyPartCh chan int // For notification if we have a new part
-	mutex       sync.Mutex
-	useAsycCopy bool
 }
 
-func (f *File) Copy(ctx context.Context, w io.Writer) error {
+func (f *File) Copy(w io.Writer) error {
 	if f.Size == 0 {
 		return nil
 	}
-	if f.useAsycCopy {
-		return f.copyAsync(ctx, w)
-	}
-	return f.copy(ctx, w)
+	_, err := io.Copy(w, f.Reader)
+	return err
 }
 
-func (f *File) Close() {
-	for _, part := range f.Parts {
-		if part.FilePath != "" {
-			os.Remove(part.FilePath)
-		}
-	}
-	f.Parts = nil
-}
-
-func (f *File) getPart(index int) filePart {
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	return f.Parts[index]
-}
-
-func (f *File) setPart(index int, p filePart) {
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	f.Parts[index] = p
-}
-
-func (f *File) copyAsync(ctx context.Context, w io.Writer) error {
-	partsCount := cap(f.Parts)
-	for i := 0; i < partsCount; {
-		part := f.getPart(i)
-		if part.FilePath == "" {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case num, ok := <-f.readyPartCh:
-				switch {
-				case !ok:
-					if len(f.Parts) == cap(f.Parts) {
-						log.Debug().Msgf("all parts are process for file %s-%s", f.UUID.String(), f.Name)
-					} else {
-						log.Debug().Msgf("loading of parts faileds for file %s-%s", f.UUID.String(), f.Name)
-					}
-				case num == -1:
-					log.Debug().Msgf("part failed for file, stop copy %s-%s", f.UUID.String(), f.Name)
-					return fmt.Errorf("part failed, file cannot be combined")
-				case num-1 == i:
-					// If we have a new part that should be process then process it, otherwise waiting.
-					part = f.getPart(i)
-				default:
-					continue
-				}
-			}
-		}
-		log.Debug().Msgf("process part %d %s", i+1, part.FilePath)
-		i++
-		f, err := os.Open(part.FilePath)
-		if err != nil {
-			return err
-		}
-		cr := &ctxReader{ctx: ctx, r: f}
-		written, err := io.Copy(w, cr)
-		if err != nil {
-			f.Close()
-			return err
-		}
-		log.Debug().Msgf("written %d bytes - %s", written, part.FilePath)
-		f.Close()
-	}
-	return nil
-}
-
-func (f *File) copy(ctx context.Context, w io.Writer) error {
-	for _, part := range f.Parts {
-		f, err := os.Open(part.FilePath)
-		if err != nil {
-			return err
-		}
-		cr := &ctxReader{ctx: ctx, r: f}
-		written, err := io.Copy(w, cr)
-		if err != nil {
-			f.Close()
-			return err
-		}
-		log.Info().Msgf("written %d bytes - %s", written, part.FilePath)
-		f.Close()
-	}
-	return nil
-}
+func (f *File) Close() {}
 
 type processingFile struct {
 	FileData
@@ -181,17 +90,4 @@ type fileUploadPartData struct {
 	Ctx        context.Context
 	ErrCount   int
 	Storage    storagelocator.StorageInfo
-}
-
-func (p *fileUploadPartData) ToWorkerTask() FileUploadTask {
-	return FileUploadTask{
-		Number:     p.Number,
-		FilePath:   p.FilePath,
-		StartIndex: p.StartIndex,
-		EndIndex:   p.EndIndex,
-		UploadURL:  fmt.Sprintf("http://%s/files/%s-%d", p.Storage.Addr, p.FileUUID.String(), p.Number),
-		ResultCh:   p.ResultCh,
-		Ctx:        p.Ctx,
-		ErrCount:   p.ErrCount,
-	}
 }

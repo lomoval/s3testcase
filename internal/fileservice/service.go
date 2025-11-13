@@ -29,7 +29,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -66,13 +65,6 @@ type Service struct {
 }
 
 func New(cfg Config, l *storagelocator.Locator) (*Service, error) {
-	if err := os.MkdirAll(cfg.FileProcessor.UploadDir, 0o755); err != nil {
-		return nil, err
-	}
-
-	if err := os.MkdirAll(cfg.FileProcessor.DownloadDir, 0o755); err != nil {
-		return nil, err
-	}
 	bd, err := db.InitDB(cfg.DB.DSN())
 	if err != nil {
 		log.Err(err).Msgf("failed to connect to DB %s", cfg.DB.SafeDSN())
@@ -84,7 +76,7 @@ func New(cfg Config, l *storagelocator.Locator) (*Service, error) {
 
 	store := filedatastore.NewStore(bd)
 	fileProcessor := fileprocessor.NewFileProcessor(fileprocessor.LoadConfig(), store, l)
-	cleaner := filecleaner.NewCleaner(filecleaner.LoadConfig(), store, l)
+	cleaner := filecleaner.NewCleaner(store, l)
 
 	r := chi.NewRouter()
 	srv := &Service{
@@ -277,7 +269,7 @@ func (s *Service) downloadFileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", f.Type)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, f.Name))
 
-	if err := f.Copy(r.Context(), w); err != nil {
+	if err := f.Copy(w); err != nil {
 		log.Err(err).Msgf("failed copy to body - file %s-%s", f.UUID.String(), fileName)
 		return
 	}
