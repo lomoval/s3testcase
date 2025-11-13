@@ -69,9 +69,6 @@ func TestStorageDirectoriesExist(t *testing.T) {
 	exists, err := dirExists(c.StorageDir)
 	require.NoError(t, err)
 	require.True(t, exists)
-	exists, err = dirExists(path.Join(c.StorageDir, tmpDirName))
-	require.NoError(t, err)
-	require.True(t, exists)
 	exists, err = dirExists(path.Join(c.StorageDir, dataDirName))
 	require.NoError(t, err)
 	require.True(t, exists)
@@ -110,13 +107,13 @@ func TestStorageSave(t *testing.T) {
 	require.NoError(t, s.Run())
 	require.NoError(t, s.Save(context.Background(), "test.txt", strings.NewReader(content)))
 
+	exists, err := fileExists(path.Join(c.StorageDir, dataDirName, "test.txt"))
+	require.NoError(t, err)
+	require.True(t, exists)
+
 	actualSize, err := fileSize(path.Join(c.StorageDir, dataDirName, "test.txt"))
 	require.NoError(t, err)
 	require.Equal(t, expectedSize, actualSize)
-
-	exists, err := fileExists(path.Join(c.StorageDir, tmpDirName, "test.txt"))
-	require.NoError(t, err)
-	require.False(t, exists)
 
 	require.Equal(t, expectedSize, s.Size())
 
@@ -140,10 +137,6 @@ func TestStorageSaveSame(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedSize, actualSize)
 
-	exists, err := fileExists(path.Join(c.StorageDir, tmpDirName, "test.txt"))
-	require.NoError(t, err)
-	require.False(t, exists)
-
 	require.Equal(t, expectedSize, s.Size())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -161,6 +154,10 @@ func TestStorageSaveGet(t *testing.T) {
 	s := NewStorage(c)
 	require.NoError(t, s.Run())
 	require.NoError(t, s.Save(context.Background(), key, strings.NewReader(content)))
+
+	exists, err := fileExists(path.Join(c.StorageDir, dataDirName, "test.txt"))
+	require.NoError(t, err)
+	require.True(t, exists)
 
 	data, err := s.Get("test.txt")
 	require.NoError(t, err)
@@ -190,9 +187,33 @@ func TestStorageSaveDelete(t *testing.T) {
 	require.NoError(t, s.Save(context.Background(), "test3.txt", strings.NewReader(content)))
 	require.Equal(t, expectedSize, s.Size())
 
+	exists, err := fileExists(path.Join(c.StorageDir, dataDirName, "test1.txt"))
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	exists, err = fileExists(path.Join(c.StorageDir, dataDirName, "test2.txt"))
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	exists, err = fileExists(path.Join(c.StorageDir, dataDirName, "test3.txt"))
+	require.NoError(t, err)
+	require.True(t, exists)
+
 	require.NoError(t, s.Delete("test2.txt"))
-	_, err := s.Get("test2.txt")
+	_, err = s.Get("test2.txt")
 	require.ErrorIs(t, err, ErrFileNotFound)
+
+	exists, err = fileExists(path.Join(c.StorageDir, dataDirName, "test1.txt"))
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	exists, err = fileExists(path.Join(c.StorageDir, dataDirName, "test2.txt"))
+	require.NoError(t, err)
+	require.False(t, exists)
+
+	exists, err = fileExists(path.Join(c.StorageDir, dataDirName, "test3.txt"))
+	require.NoError(t, err)
+	require.True(t, exists)
 
 	data, err := s.Get("test1.txt")
 	require.NoError(t, err)
@@ -214,70 +235,6 @@ func TestStorageDeleteNotExist(t *testing.T) {
 	s := NewStorage(c)
 	require.NoError(t, s.Run())
 	require.NoError(t, s.Delete("not_exists"))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	require.NoError(t, s.Shutdown(ctx))
-}
-
-func TestStorageCleanupOnRun(t *testing.T) {
-	c := Config{StorageDir: t.TempDir(), CleanupInterval: 10000 * time.Millisecond, CleanupAge: 5 * time.Millisecond}
-
-	content := t.Name()
-	require.NoError(t, createFileInDir(path.Join(c.StorageDir, tmpDirName), "test.txt", content))
-	time.Sleep(6 * time.Millisecond) // Wait to make file older than cleanup age.
-
-	s := NewStorage(c)
-	require.NoError(t, s.Run())
-
-	require.Eventually(
-		t,
-		func() bool {
-			exists, err := fileExists(path.Join(c.StorageDir, tmpDirName, "test.txt"))
-			require.NoError(t, err)
-			return !exists
-		},
-		250*time.Millisecond,
-		50*time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	require.NoError(t, s.Shutdown(ctx))
-}
-
-func TestStorageCleanupOnInterval(t *testing.T) {
-	c := Config{StorageDir: t.TempDir(), CleanupInterval: 25 * time.Millisecond, CleanupAge: 300 * time.Millisecond}
-
-	start := time.Now()
-	content := t.Name()
-	require.NoError(t, createFileInDir(path.Join(c.StorageDir, tmpDirName), "test1.txt", content))
-	time.Sleep(100 * time.Millisecond)
-	require.NoError(t, createFileInDir(path.Join(c.StorageDir, tmpDirName), "test2.txt", content))
-
-	s := NewStorage(c)
-	require.NoError(t, s.Run())
-
-	require.Eventually(
-		t,
-		func() bool {
-			exists1, err := fileExists(path.Join(c.StorageDir, tmpDirName, "test1.txt"))
-			require.NoError(t, err)
-			exists2, err := fileExists(path.Join(c.StorageDir, tmpDirName, "test2.txt"))
-			require.NoError(t, err)
-			return !exists1 && exists2 && time.Since(start) >= 300*time.Millisecond && time.Since(start) < 400*time.Millisecond
-		},
-		350*time.Millisecond,
-		50*time.Millisecond)
-
-	require.Eventually(
-		t,
-		func() bool {
-			exists, err := fileExists(path.Join(c.StorageDir, tmpDirName, "test2.txt"))
-			require.NoError(t, err)
-			return !exists && time.Since(start) >= 400*time.Millisecond
-		},
-		350*time.Millisecond,
-		50*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()

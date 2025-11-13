@@ -132,13 +132,14 @@ func (s *Service) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	defer r.Body.Close()
 	ctx := context.TODO()
+	log.Debug().Msgf("uploading file '%s'", filename)
 	if err := s.fs.Save(ctx, filename, r.Body); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":       true,
+		"success":  true,
 		"fullSize": s.fs.Size(),
 	})
 }

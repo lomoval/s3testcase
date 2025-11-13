@@ -356,7 +356,7 @@ func (s *Store) GetCleaningItemsBatch(ctx context.Context, limit int) ([]CleanIt
 func (s *Store) AddOldFilesToCleanItems(ctx context.Context, fileUUID uuid.UUID) error {
 	const query = `
 	INSERT INTO clean_outbox (file_uuid, clean_after)
-	SELECT f2.uuid, NOW()
+	SELECT f2.uuid, NOW() + interval '5 minutes'
 	FROM files target
 	JOIN files f2 
 	  ON f2.file_name = target.file_name

@@ -32,7 +32,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -41,60 +40,43 @@ import (
 )
 
 const (
-	tmpDirName  = "tmp"
 	dataDirName = "data"
 )
 
 var ErrFileNotFound = errors.New("file does not exist")
 
 type Config struct {
-	StorageDir      string        `yaml:"storageDir"`
-	TmpDir          string        `yaml:"tempDir"`
-	DataDir         string        `yaml:"dataDir"`
-	CleanupInterval time.Duration `yaml:"cleanupInterval"`
-	CleanupAge      time.Duration `yaml:"cleanupAge"`
+	StorageDir string `yaml:"storageDir"`
+	TmpDir     string `yaml:"tempDir"`
+	DataDir    string `yaml:"dataDir"`
 }
 
 func LoadConfig() Config {
 	dir := usys.GetEnv("STORAGE_DIR", path.Join(os.TempDir(), "storage"))
 	return Config{
-		StorageDir:      dir,
-		TmpDir:          usys.GetEnv("STORAGE_TMP_DIR", path.Join(dir, tmpDirName)),
-		DataDir:         usys.GetEnv("STORAGE_DATA_DIR", path.Join(dir, dataDirName)),
-		CleanupInterval: 5 * time.Minute,
-		CleanupAge:      15 * time.Minute,
+		StorageDir: dir,
+		DataDir:    usys.GetEnv("STORAGE_DATA_DIR", path.Join(dir, dataDirName)),
 	}
 }
 
 type Storage struct {
-	storageDir      string
-	tmpDir          string
-	dataDir         string
-	maxAge          time.Duration
-	cleanupInterval time.Duration
-	stopCh          chan struct{}
-	wg              sync.WaitGroup
-	size            int64
+	storageDir string
+	dataDir    string
+	stopCh     chan struct{}
+	wg         sync.WaitGroup
+	size       int64
 }
 
 func NewStorage(cfg Config) *Storage {
 	return &Storage{
-		storageDir:      cfg.StorageDir,
-		tmpDir:          path.Join(cfg.StorageDir, tmpDirName),
-		dataDir:         path.Join(cfg.StorageDir, dataDirName),
-		maxAge:          cfg.CleanupAge,
-		cleanupInterval: cfg.CleanupInterval,
-		wg:              sync.WaitGroup{},
+		storageDir: cfg.StorageDir,
+		dataDir:    path.Join(cfg.StorageDir, dataDirName),
+		wg:         sync.WaitGroup{},
 	}
 }
 
 func (s *Storage) Run() error {
 	err := os.MkdirAll(s.dataDir, 0o755)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(s.tmpDir, 0o755)
 	if err != nil {
 		return err
 	}
@@ -105,29 +87,6 @@ func (s *Storage) Run() error {
 	}
 
 	s.stopCh = make(chan struct{})
-	if s.cleanupInterval > 0 {
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			if s.cleanupTempFiles(s.maxAge) != nil {
-				log.Err(err).Msg("cleanup failed")
-			}
-
-			t := time.NewTicker(s.cleanupInterval)
-			defer t.Stop()
-			for {
-				select {
-				case <-t.C:
-					if s.cleanupTempFiles(s.maxAge) != nil {
-						log.Err(err).Msg("cleanup failed")
-					}
-				case <-s.stopCh:
-					log.Debug().Msgf("cleanup stopped")
-					return
-				}
-			}
-		}()
-	}
 	return nil
 }
 
@@ -149,28 +108,20 @@ func (s *Storage) Shutdown(ctx context.Context) error {
 }
 
 func (s *Storage) Save(ctx context.Context, key string, r io.Reader) error {
-	tmpPath := filepath.Join(s.tmpDir, key)
 	dataPath := filepath.Join(s.dataDir, key)
-
-	size, err := s.saveReader(ctx, tmpPath, r)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := removeFileIgnoreNotExist(tmpPath); err != nil {
-			log.Err(err).Msgf("failed to remove tmp file '%s'", tmpPath)
-		}
-	}()
 
 	existSize, err := fileSizeIfExist(dataPath)
 	if err != nil {
 		return err
 	}
 
-	if err := os.Rename(tmpPath, dataPath); err != nil {
+	size, err := s.saveReader(ctx, dataPath, r)
+	if err != nil {
 		return err
 	}
+
 	s.addSize(size - existSize)
+	log.Debug().Msgf("saved file '%s' with size %d", key, size)
 	return nil
 }
 
@@ -270,23 +221,6 @@ func writeWithContext(ctx context.Context, r io.Reader, out *os.File, size int64
 			}
 		}
 	}
-}
-
-func (s *Storage) cleanupTempFiles(maxAge time.Duration) error {
-	return filepath.Walk(s.tmpDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if time.Since(info.ModTime()) > maxAge {
-			if err := os.Remove(path); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }
 
 func getDirSize(ctx context.Context, root string, workers int) (int64, error) {
