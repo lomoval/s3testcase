@@ -240,6 +240,7 @@ func startTestContainers(t *testing.T, numStorages int) (*testContainers, error)
 
 func runPostgres(ctx context.Context, net *testcontainers.DockerNetwork) (*containerData, error) {
 	req := testcontainers.ContainerRequest{
+		Name:         "postgres",
 		Image:        postgresImage,
 		ExposedPorts: []string{"5432/tcp"},
 		Env: map[string]string{
@@ -313,6 +314,7 @@ func runFileService(
 	}
 	strPort := strings.Split(env["LISTEN_ADDR"], ":")[1]
 	req := testcontainers.ContainerRequest{
+		Name: "fileservice",
 		// Image: fileserviceImage,
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    dockerContext,
@@ -371,6 +373,7 @@ func runStorageService(
 	}
 	strPort := strings.Split(env["LISTEN_ADDR"], ":")[1]
 	req := testcontainers.ContainerRequest{
+		Name: "storageservice" + strNum,
 		// Image: fileserviceImage,
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    dockerContext,
