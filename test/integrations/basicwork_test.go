@@ -306,8 +306,6 @@ func runFileService(
 		"LISTEN_ADDR":                 "0.0.0.0:8180",
 		"STORAGE_LOCATOR_LISTEN_ADDR": "0.0.0.0:8190",
 		"MIGRATIONS_DIR":              "/db/migrations",
-		"DOWNLOAD_DIR":                "/tmp/fs/d",
-		"UPLOAD_DIR":                  "/tmp/fs/u",
 	}
 	for k, v := range testEnv {
 		env[k] = v

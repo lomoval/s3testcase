@@ -31,8 +31,6 @@ services:
     environment:
       LISTEN_ADDR: 0.0.0.0:8100
       STORAGE_LOCATOR_LISTEN_ADDR: 0.0.0.0:8300
-      DOWNLOAD_DIR: /tmp/fs/d
-      UPLOAD_DIR: /tmp/fs/u
       MIGRATIONS_DIR: /db/migrations
 
       DB_HOST: postgres

@@ -100,25 +100,21 @@ func uploadFile(addr, filePath string) error {
 	}
 
 	hasher := sha256.New()
-	if _, err := io.Copy(hasher, f); err != nil {
-		return fmt.Errorf("cannot hash file: %w", err)
-	}
-	hashSum := hasher.Sum(nil)
+	tee := io.TeeReader(f, hasher)
 
 	fmt.Printf("Uploading file to: %s\n", uploadURL)
 	fmt.Printf("Name: %s\n", filepath.Base(filePath))
 	fmt.Printf("Size: %d bytes\n", stat.Size())
 	fmt.Printf("Content-Type: %s\n", contentType)
-	fmt.Printf("SHA256: %x\n", hashSum)
-
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("cannot seek file: %w", err)
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	startTime := time.Now()
-	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, f)
+	var reader io.Reader
+	if stat.Size() > 0 {
+		reader = tee
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", uploadURL, reader)
 	if err != nil {
 		return fmt.Errorf("cannot create request: %w", err)
 	}
@@ -133,12 +129,14 @@ func uploadFile(addr, filePath string) error {
 	}
 	defer resp.Body.Close()
 
+	// now the hasher contains full hash
+	hashSum := hasher.Sum(nil)
+
+	fmt.Printf("SHA256: %x\n", hashSum)
+
 	if resp.StatusCode == http.StatusOK {
-		fmt.Printf(
-			"File '%s' uploaded successfully (elapsed: %s)\n",
-			filepath.Base(filePath),
-			time.Since(startTime).String(),
-		)
+		fmt.Printf("File '%s' uploaded successfully (elapsed: %s)\n",
+			filepath.Base(filePath), time.Since(startTime))
 		return nil
 	}
 
