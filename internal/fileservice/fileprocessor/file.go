@@ -22,12 +22,9 @@
 package fileprocessor
 
 import (
-	"context"
 	"io"
-	"time"
 
 	"github.com/google/uuid"
-	"s3testcase/internal/storagelocator"
 )
 
 type FileData struct {
@@ -38,14 +35,13 @@ type FileData struct {
 }
 
 type File struct {
-	UUID   uuid.UUID
-	Name   string
-	Size   int64
-	Reader io.Reader
-	Type   string
-	Parts  []filePart
+	FileData
+	UUID uuid.UUID
+}
 
-	readyPartCh chan int // For notification if we have a new part
+type filePartInterval struct {
+	StartIndex int64
+	EndIndex   int64
 }
 
 func (f *File) Copy(w io.Writer) error {
@@ -58,36 +54,6 @@ func (f *File) Copy(w io.Writer) error {
 
 func (f *File) Close() {}
 
-type processingFile struct {
-	FileData
-	UUID  uuid.UUID
-	Parts []filePart
-}
-
-type filePartInterval struct {
-	StartIndex int64
-	EndIndex   int64
-}
-
 func (p filePartInterval) Size() int64 {
 	return p.EndIndex - p.StartIndex
-}
-
-type filePart struct {
-	ProcessedTime time.Time
-	FilePath      string
-	Error         error
-}
-
-type fileUploadPartData struct {
-	filePartInterval
-	// Number of file part (1..N).
-	FileUUID   uuid.UUID
-	Number     int
-	FilePath   string
-	LocationID int64
-	ResultCh   chan FileTaskResult
-	Ctx        context.Context
-	ErrCount   int
-	Storage    storagelocator.StorageInfo
 }

@@ -78,7 +78,7 @@ func NewServer(cfg Config, ls *storagelocator.LiveSender, s storage.Storage) *Se
 	}
 
 	r.Put("/files/{key}", service.uploadHandler)
-	r.Get("/files/{key}", service.Download)
+	r.Get("/files/{key}", service.downloadHandler)
 	r.Delete("/files/{key}", service.deleteHandler)
 
 	return &service
@@ -131,9 +131,8 @@ func (s *Service) uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	defer r.Body.Close()
-	ctx := context.TODO()
 	log.Debug().Msgf("uploading file '%s'", filename)
-	if err := s.fs.Save(ctx, filename, r.Body); err != nil {
+	if err := s.fs.Save(r.Context(), filename, r.Body); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
@@ -144,7 +143,7 @@ func (s *Service) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Service) Download(w http.ResponseWriter, r *http.Request) {
+func (s *Service) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	filename := chi.URLParam(r, "key")
 	if filename == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "key required in URL"})

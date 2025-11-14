@@ -38,15 +38,14 @@ import (
 
 // Cleaner is a module responsible for automatic file and metadata cleanup
 // based on the outbox pattern.
-// It removes files that are marked for deletion by:
+// It removes files that are not processed successfully (no processed time)
+// or file have new version (files have same names,
+// but new version has later processed time or id if processed time is same):
 //   - removing all parts from Storage Services,
 //   - and cleaning up file metadata from the datastore.
 //
 // If an error occurs during cleanup, the operation will be retried
 // in the next cleanup cycle.
-//
-// The Cleaner also removes obsolete files — older versions that have
-// been replaced by newer ones with the same name.
 type Cleaner struct {
 	store   *repository.Store
 	locator *storagelocator.Locator

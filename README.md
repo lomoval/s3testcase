@@ -41,7 +41,7 @@ Includes:
   It operates using the outbox pattern:
   periodically checks the datastore for records in the outbox table that indicate files to be cleaned up.
 
-* **File Processor** — implements the logic for uploading and downloading files using worker pools.
+* **File Processor** — implements the logic for uploading and downloading files.
 
 ---
 

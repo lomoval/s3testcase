@@ -22,20 +22,26 @@
 package fileprocessor
 
 import (
-	"runtime"
+	"strconv"
+
+	"github.com/rs/zerolog/log"
+	usys "s3testcase/internal/utils/sys"
 )
 
 type Config struct {
-	UploadWorkersCount   int
-	DownloadWorkersCount int
-	FilePartsCount       int
+	FilePartsCount int
+	UsePrefetch    bool
 	// MinFileSizeToDivide int
 }
 
 func LoadConfig() Config {
+	usePrefetch, err := strconv.ParseBool(usys.GetEnv("USE_PREFETCH_DOWNLOAD", "false"))
+	if err != nil {
+		log.Err(err).Msgf("failed to parse USE_PREFETCH_DOWNLOAD: %v", err)
+		usePrefetch = false
+	}
 	return Config{
-		UploadWorkersCount:   runtime.NumCPU() + 2,
-		DownloadWorkersCount: runtime.NumCPU() + 2,
-		FilePartsCount:       6,
+		FilePartsCount: 6,
+		UsePrefetch:    usePrefetch,
 	}
 }

@@ -35,39 +35,30 @@ import (
 
 	"s3testcase/internal/fileservice/filedatastore"
 	"s3testcase/internal/storagelocator"
+	ulog "s3testcase/internal/utils/log"
 )
 
 const (
-	maxErrorsOnPart = 3
-	cleanTimeout    = 5 * time.Minute
+	cleanTimeout = 5 * time.Minute
 )
 
 var (
-	ErrUploadFailed      = errors.New("upload failed")
 	ErrDownloadFailed    = errors.New("download failed")
 	ErrFileNotFound      = errors.New("file not found")
 	ErrIncorrectFileSize = errors.New("incorrect file size")
 )
 
+type FileProcessor struct {
+	filePartsCount int
+	usePrefetch    bool
+	store          *filedatastore.Store
+	locator        *storagelocator.Locator
+	httpClient     *http.Client
+}
+
 type roundIterator struct {
 	Storages []storagelocator.StorageInfo
 	i        int
-}
-
-func (r *roundIterator) Next() storagelocator.StorageInfo {
-	item := r.Storages[r.i]
-	r.i++
-	if r.i >= len(r.Storages) {
-		r.i = 0
-	}
-	return item
-}
-
-type FileProcessor struct {
-	workerPool     *UploadWorkerPool
-	filePartsCount int
-	store          *filedatastore.Store
-	locator        *storagelocator.Locator
 }
 
 func NewFileProcessor(
@@ -75,36 +66,24 @@ func NewFileProcessor(
 	store *filedatastore.Store,
 	locator *storagelocator.Locator,
 ) *FileProcessor {
-	wp := NewUploadWorkerPool(cfg.UploadWorkersCount, cfg.DownloadWorkersCount)
 	return &FileProcessor{
 		filePartsCount: cfg.FilePartsCount,
-		workerPool:     wp,
+		usePrefetch:    cfg.UsePrefetch,
 		store:          store,
 		locator:        locator,
+		httpClient:     &http.Client{},
 	}
 }
 
 func (fp *FileProcessor) Run() {
-	fp.workerPool.Run()
 }
 
-func (fp *FileProcessor) Shutdown(ctx context.Context) error {
-	if err := fp.workerPool.Shutdown(ctx); err != nil {
-		log.Err(err).Msg("failed to shutdown worker pool")
-		return err
-	}
+func (fp *FileProcessor) Shutdown(_ context.Context) error {
 	log.Info().Msg("shutdown complete")
 	return nil
 }
 
 // Get retrieves a file from the storage.
-// Download flow:
-//  1. File metadata and parts locations are read from the File Datastore.
-//  2. Worker tasks are created to fetch file chunks from the Storage Services.
-//  3. The system waits for all workers to finish and assembles the file.
-//  4. For large files, streaming is supported:
-//     The response can begin sending as soon as the first chunk is received,
-//     while the remaining chunks continue to load and stream sequentially.
 func (fp *FileProcessor) Get(ctx context.Context, fileName string) (*File, error) {
 	file, err := fp.store.GetLastFileWithLocationsByName(ctx, fileName)
 	if err != nil {
@@ -114,12 +93,13 @@ func (fp *FileProcessor) Get(ctx context.Context, fileName string) (*File, error
 		return nil, ErrFileNotFound
 	}
 	f := File{
-		UUID:        file.UUID,
-		Name:        file.FileName,
-		Size:        file.Size,
-		Type:        file.ContentType,
-		Parts:       make([]filePart, len(file.Locations)),
-		readyPartCh: make(chan int, len(file.Locations)),
+		UUID: file.UUID,
+		FileData: FileData{
+			Name:   file.FileName,
+			Size:   file.Size,
+			Type:   file.ContentType,
+			Reader: nil,
+		},
 	}
 
 	if f.Size == 0 {
@@ -127,38 +107,15 @@ func (fp *FileProcessor) Get(ctx context.Context, fileName string) (*File, error
 		return &f, nil
 	}
 
-	pr, pw := io.Pipe()
-	f.Reader = pr
-	go func() {
-		defer pw.Close()
-		for i, l := range file.Locations {
-			select {
-			case <-ctx.Done():
-				if err := pw.CloseWithError(ctx.Err()); err != nil {
-					log.Err(err).Msgf("failed to close pipe writer")
-					return
-				}
-				return
-			default:
-			}
-
-			s, err := fp.locator.StorageByUUID(l.LocationUUID)
-			if err != nil {
-				log.Err(err).Msgf("failed to get storage by uuid %s", l.LocationUUID)
-				return
-			}
-			storageFileName := fmt.Sprintf("%s-%d", f.UUID.String(), l.PartNumber)
-
-			url := fmt.Sprintf("http://%s/files/%s", s.Addr, storageFileName)
-			if err := downloadFile(ctx, url, pw); err != nil {
-				if err := pw.CloseWithError(fmt.Errorf("failed download file %d: %w", i+1, err)); err != nil {
-					log.Err(err).Msgf("failed to close pipe writer")
-					return
-				}
-			}
-		}
-	}()
-
+	switch fp.usePrefetch {
+	case true:
+		// It's for own testing purpose (cn be ignored) - to check comparison with sequentially downloading.
+		// On same local machine it not useful: sequentially works faster for most files;
+		// with big files in most cases speed is the same.
+		fp.getPrefetched(ctx, file, &f)
+	default:
+		fp.getSequentially(ctx, file, &f)
+	}
 	return &f, nil
 }
 
@@ -166,29 +123,27 @@ func (fp *FileProcessor) Get(ctx context.Context, fileName string) (*File, error
 //
 //	Each uploaded file is first registered in the File Datastore (the outbox table)
 //	before any processing begins. This ensures that if an error occurs during handling,
-//	the Cleaner component can roll back and remove any partial data or metadata.
+//	the Cleaner component can roll back and remove any partial data or metadata (from db or storages).
 //
 // Upload flow:
 //  1. When upload starts, a record is created in the File Datastore outbox table.
 //     If an error occurs during processing, the Cleaner will delete the file data
 //     from storage and remove all related database records.
 //  2. A file record is created in the File Datastore with metadata.
-//     At this stage, the file is not processed (no processed timestamp) and can not be downloaded.
+//     At this stage, the file is not processed (no processed timestamp) and can not be downloaded by clients.
 //  3. Processing of file:
-//     - The file is written to disk.
-//     - As soon as the size of the local file exceeds a single chunk size,
-//     worker tasks are created to upload those chunks to the Storage Service.
-//     - Waits for all workers to complete
-//     and validates that all chunks were successfully stored.
-//  3. If some chunks fail an error is returned.
-//  4. If all chunks are successfully processed, a processing timestamp is set,
-//     and available for download.
+//     for file uploads, intervals corresponding to part sizes are used.
+//     A connection to the storage is opened, and data begins streaming there according to the part size.
+//     Then, the next connection is opened to handle the following part, and so on, until all the data has
+//     been processed.
+//  4. After all parts are processed, the file is marked as processed (has a processed timestamp in the DB).
+//     At this point, the file can be downloaded by clients.
 func (fp *FileProcessor) Save(ctx context.Context, fd FileData) error {
 	if fd.Size < 0 {
 		return ErrIncorrectFileSize
 	}
 
-	file := &processingFile{
+	file := &File{
 		FileData: fd,
 		UUID:     uuid.New(),
 	}
@@ -207,10 +162,56 @@ func (fp *FileProcessor) Save(ctx context.Context, fd FileData) error {
 	if err != nil {
 		return err
 	}
+
+	if file.Size == 0 {
+		if err := fp.store.SetFileProcessedTime(ctx, file.UUID, time.Now()); err != nil {
+			log.Err(err).Msgf("failed to set file processed time")
+			return err
+		}
+		return nil
+	}
+
 	return fp.save(ctx, file)
 }
 
-func (fp *FileProcessor) save(ctx context.Context, file *processingFile) error {
+// Get retrieves a file from the storage.
+// It sequentially downloads each part of the file and writes it by pipe, data can be read by file reader.
+func (fp *FileProcessor) getSequentially(ctx context.Context, dsFile *filedatastore.File, file *File) {
+	pr, pw := io.Pipe()
+	file.Reader = pr
+	go func() {
+		defer pw.Close()
+		for i, l := range dsFile.Locations {
+			select {
+			case <-ctx.Done():
+				if err := pw.CloseWithError(ctx.Err()); err != nil {
+					log.Err(err).Msgf("failed to close pipe writer")
+					return
+				}
+				return
+			default:
+			}
+
+			s, err := fp.locator.StorageByUUID(l.LocationUUID)
+			if err != nil {
+				log.Err(err).Msgf("failed to get storage by uuid %s", l.LocationUUID)
+				return
+			}
+			storageFileName := fmt.Sprintf("%s-%d", file.UUID.String(), l.PartNumber)
+
+			url := fmt.Sprintf("http://%s/files/%s", s.Addr, storageFileName)
+			log.Debug().Msgf("download file '%s', part %d from %s", file.Name, i+1, url)
+			if err := fp.readHTTPOKResponse(ulog.ContextWithHTTPTracer(ctx, "download-file"), url, pw); err != nil {
+				if err := pw.CloseWithError(fmt.Errorf("failed download file %d: %w", i+1, err)); err != nil {
+					log.Err(err).Msgf("failed to close pipe writer")
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (fp *FileProcessor) save(ctx context.Context, file *File) error {
 	log.Debug().Msgf("processing file %s-%s %s %d", file.UUID, file.Name, file.Type, file.Size)
 
 	partsIntervals := partsFileIntervals(file.Size, fp.filePartsCount)
@@ -237,9 +238,9 @@ func (fp *FileProcessor) save(ctx context.Context, file *processingFile) error {
 		log.Printf("sending part %d (%d bytes) to  %s - %s", i+1, pi.Size(), s.UUID, s.Addr)
 		limited := io.LimitReader(file.Reader, pi.Size())
 		req, err := http.NewRequestWithContext(
-			ctx,
+			ulog.ContextWithHTTPTracer(ctx, "upload-file"),
 			"PUT",
-			fmt.Sprintf("http://%s/files/%s-%d", s.Addr, file.UUID.String(), partNumber),
+			fmt.Sprintf("http://%s/files/%s", s.Addr, storageFilename(file, partNumber)),
 			limited,
 		)
 		if err != nil {
@@ -247,11 +248,13 @@ func (fp *FileProcessor) save(ctx context.Context, file *processingFile) error {
 		}
 		req.ContentLength = pi.Size()
 		req.Header.Set("Content-Type", "application/octet-stream")
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := fp.httpClient.Do(req)
 		if err != nil {
 			return err
 		}
-		resp.Body.Close()
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body) // to ignore body and place connection to pool.
+
 		if resp.StatusCode != http.StatusOK {
 			log.Error().Msgf("failed to upload part %d: %s", partNumber, resp.Status)
 			return fmt.Errorf("failed to upload part %d: %s", partNumber, resp.Status)
@@ -271,12 +274,38 @@ func (fp *FileProcessor) save(ctx context.Context, file *processingFile) error {
 	return nil
 }
 
+func (fp *FileProcessor) readHTTPOKResponse(ctx context.Context, url string, pw io.Writer) error {
+	resp, err := fp.getHTTPOKResponse(ctx, url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if _, err := io.Copy(pw, resp.Body); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (fp *FileProcessor) storagesIterator() roundIterator {
 	storages := fp.locator.Storages()
 	sort.Slice(storages, func(i, j int) bool {
 		return storages[i].Size < storages[j].Size
 	})
 	return roundIterator{Storages: storages}
+}
+
+func (r *roundIterator) Next() storagelocator.StorageInfo {
+	item := r.Storages[r.i]
+	r.i++
+	if r.i >= len(r.Storages) {
+		r.i = 0
+	}
+	return item
+}
+
+func storageFilename(f *File, partNumber int) string {
+	return fmt.Sprintf("%s-%d", f.UUID.String(), partNumber)
 }
 
 // partsFileIntervals splits the range [0, size) into approximately equal parts.
@@ -312,26 +341,4 @@ func partsFileIntervals(size int64, partsCount int) []filePartInterval {
 	}
 
 	return parts
-}
-
-func downloadFile(ctx context.Context, url string, pw *io.PipeWriter) error {
-	client := &http.Client{}
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status %d for part %s", resp.StatusCode, url)
-	}
-	if _, err := io.Copy(pw, resp.Body); err != nil {
-		return err
-	}
-	return nil
 }
