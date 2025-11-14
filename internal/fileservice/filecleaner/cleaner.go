@@ -184,7 +184,7 @@ func (c *Cleaner) deleteFromLocation(ctx context.Context, locationUUID uuid.UUID
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodDelete,
-		"http://"+s.Addr+"/files/"+fileName,
+		s.URL+"/files/"+fileName,
 		nil,
 	)
 	if err != nil {

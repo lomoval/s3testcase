@@ -38,7 +38,7 @@ import (
 )
 
 func main() {
-	ulog.InitConsoleWriter(zerolog.TraceLevel)
+	ulog.InitConsoleWriter(zerolog.DebugLevel)
 
 	fs := filestorage.NewStorage(filestorage.LoadConfig())
 	if err := fs.Run(); err != nil {

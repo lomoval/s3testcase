@@ -58,6 +58,7 @@ type StorageInfo struct {
 	UUID uuid.UUID
 	Addr string
 	Size int64
+	URL  string
 }
 
 func LoadLocatorConfig() LocatorConfig {
@@ -117,6 +118,7 @@ func (l *Locator) Storages() []StorageInfo {
 				UUID: request.ServiceID,
 				Addr: request.AdvertisedAddr,
 				Size: request.StorageSizeBytes,
+				URL:  fmt.Sprintf("http://%s", request.AdvertisedAddr),
 			})
 		} else {
 			log.Error().Msgf(
@@ -142,6 +144,7 @@ func (l *Locator) StoragesByUUID(uuids ...uuid.UUID) (map[uuid.UUID]StorageInfo,
 			UUID: s.ServiceID,
 			Addr: s.AdvertisedAddr,
 			Size: s.StorageSizeBytes,
+			URL:  fmt.Sprintf("http://%s", s.AdvertisedAddr),
 		}
 	}
 	return res, nil
@@ -158,6 +161,7 @@ func (l *Locator) StorageByUUID(uuid uuid.UUID) (StorageInfo, error) {
 		UUID: s.ServiceID,
 		Addr: s.AdvertisedAddr,
 		Size: s.StorageSizeBytes,
+		URL:  fmt.Sprintf("http://%s", s.AdvertisedAddr),
 	}, nil
 }
 

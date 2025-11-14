@@ -197,9 +197,8 @@ func (fp *FileProcessor) getSequentially(ctx context.Context, dsFile *filedatast
 				log.Err(err).Msgf("failed to get storage by uuid %s", l.LocationUUID)
 				return
 			}
-			storageFileName := fmt.Sprintf("%s-%d", file.UUID.String(), l.PartNumber)
 
-			url := fmt.Sprintf("http://%s/files/%s", s.Addr, storageFileName)
+			url := s.URL + "/files/" + storageFilename(file, l.PartNumber)
 			log.Debug().Msgf("download file '%s', part %d from %s", file.Name, i+1, url)
 			if err := fp.readHTTPOKResponse(ulog.ContextWithHTTPTracer(ctx, "download-file"), url, pw); err != nil {
 				if err := pw.CloseWithError(fmt.Errorf("failed download file %d: %w", i+1, err)); err != nil {
@@ -240,7 +239,7 @@ func (fp *FileProcessor) save(ctx context.Context, file *File) error {
 		req, err := http.NewRequestWithContext(
 			ulog.ContextWithHTTPTracer(ctx, "upload-file"),
 			"PUT",
-			fmt.Sprintf("http://%s/files/%s", s.Addr, storageFilename(file, partNumber)),
+			s.URL+"/files/"+storageFilename(file, partNumber),
 			limited,
 		)
 		if err != nil {

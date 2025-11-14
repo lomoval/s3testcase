@@ -40,7 +40,7 @@ import (
 )
 
 func main() {
-	ulog.InitConsoleWriter(zerolog.TraceLevel)
+	ulog.InitConsoleWriter(zerolog.DebugLevel)
 
 	l, err := storagelocator.NewLocator(storagelocator.LoadLocatorConfig())
 	if err != nil {
